@@ -47,6 +47,7 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Vector;
 
 import fr.neatmonster.nocheatplus.NCPAPIProvider;
@@ -2453,15 +2454,30 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         // TODO: Change to per world checking (as long as configs are per world).
         // Legacy: enforcing location consistency.
         if (!playersEnforce.isEmpty()) {
-            checkOnTickPlayersEnforce();
+            if (SchedulerHelper.isFoliaServer()) {
+                checkOnTickPlayersEnforceFolia();
+            }
+            else {
+                checkOnTickPlayersEnforce();
+            }
         }
         // Hover check (SurvivalFly).
         if (tick % hoverTicksStep == 0 && !hoverTicks.isEmpty()) {
             // Only check every so and so ticks.
-            checkOnTickHover();
+            if (SchedulerHelper.isFoliaServer()) {
+                checkOnTickHoverFolia();
+            }
+            else {
+                checkOnTickHover();
+            }
         }
         // Cleanup.
         useTickLoc.setWorld(null);
+    }
+
+
+    private Plugin getPlugin() {
+        return Bukkit.getPluginManager().getPlugin("NoCheatPlus");
     }
 
 
@@ -2519,6 +2535,81 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
 
 
     /**
+     * Folia requires block/entity reads to happen on the owning entity's
+     * scheduler. The global tick task only dispatches the hover work.
+     */
+    private void checkOnTickHoverFolia() {
+        final Plugin plugin = getPlugin();
+        if (plugin == null) {
+            return;
+        }
+        for (final String playerName : hoverTicks) {
+            final Player player = DataManager.getPlayerExact(playerName);
+            if (player == null) {
+                hoverTicks.remove(playerName);
+                continue;
+            }
+            SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
+                final PlayerMoveInfo info = aux.usePlayerMoveInfo();
+                try {
+                    final List<String> rem = new ArrayList<String>(1);
+                    synchronized (this) {
+                        checkOnTickHover(playerName, info, rem);
+                    }
+                    if (!rem.isEmpty()) {
+                        hoverTicks.removeAll(rem);
+                    }
+                }
+                finally {
+                    aux.returnPlayerMoveInfo(info);
+                }
+            }, () -> hoverTicks.remove(playerName));
+        }
+    }
+
+
+    private void checkOnTickHover(final String playerName, final PlayerMoveInfo info, final List<String> rem) {
+        final Player player = DataManager.getPlayerExact(playerName);
+        if (player == null || !player.isOnline()) {
+            rem.add(playerName);
+            return;
+        }
+        final IPlayerData pData = DataManager.getPlayerData(player);
+        final MovingData data = pData.getGenericInstance(MovingData.class);
+        if (player.isDead() || player.isSleeping() || player.isInsideVehicle()) {
+            data.sfHoverTicks = -1;
+            // (Removed below.)
+        }
+        if (data.sfHoverTicks < 0) {
+            data.sfHoverLoginTicks = 0;
+            rem.add(playerName);
+            return;
+        }
+        else if (data.sfHoverLoginTicks > 0) {
+            // Additional "grace period".
+            data.sfHoverLoginTicks --;
+            return;
+        }
+        final MovingConfig cc = pData.getGenericInstance(MovingConfig.class);
+        // Check if enabled at all.
+        if (!cc.sfHoverCheck) {
+            rem.add(playerName);
+            data.sfHoverTicks = -1;
+            return;
+        }
+        // Increase ticks here.
+        data.sfHoverTicks += hoverTicksStep;
+        if (data.sfHoverTicks < cc.sfHoverTicks) {
+            // Don't do the heavier checking here, let moving checks reset these.
+            return;
+        }
+        if (checkHover(player, data, cc, pData, info)) {
+            rem.add(playerName);
+        }
+    }
+
+
+    /**
      * Legacy check: Enforce location of players, in case of inconsistencies.
      * First move exploit / possibly vehicle leave.<br>
      * NOTE: Makes use of useLoc, without resetting it.
@@ -2544,6 +2635,49 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         }
         if (!rem.isEmpty()) {
             playersEnforce.removeAll(rem);
+        }
+    }
+
+
+    /**
+     * Folia requires player location reads and corrective teleports to happen
+     * on the player's entity scheduler.
+     */
+    private void checkOnTickPlayersEnforceFolia() {
+        final Plugin plugin = getPlugin();
+        if (plugin == null) {
+            return;
+        }
+        for (final String playerName : playersEnforce) {
+            final Player player = DataManager.getPlayerExact(playerName);
+            if (player == null) {
+                playersEnforce.remove(playerName);
+                continue;
+            }
+            SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
+                synchronized (this) {
+                    checkOnTickPlayerEnforce(playerName);
+                }
+            }, () -> playersEnforce.remove(playerName));
+        }
+    }
+
+
+    private void checkOnTickPlayerEnforce(final String playerName) {
+        final Player player = DataManager.getPlayerExact(playerName);
+        if (player == null || !player.isOnline()) {
+            playersEnforce.remove(playerName);
+            return;
+        }
+        else if (player.isDead() || player.isSleeping() || player.isInsideVehicle()) {
+            // Don't remove but also don't check [subject to change].
+            return;
+        }
+        final MovingData data = DataManager.getGenericInstance(player, MovingData.class);
+        final Location newTo = enforceLocation(player, player.getLocation(useTickLoc), data);
+        if (newTo != null) {
+            data.prepareSetBack(newTo);
+            SchedulerHelper.teleportEntity(player, newTo, BridgeMisc.TELEPORT_CAUSE_CORRECTION_OF_POSITION);
         }
     }
 

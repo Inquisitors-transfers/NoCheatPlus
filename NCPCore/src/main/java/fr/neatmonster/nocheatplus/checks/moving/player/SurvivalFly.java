@@ -78,6 +78,8 @@ public class SurvivalFly extends Check {
 
     /** To join some tags with moving check violations. */
     private final ArrayList<String> tags = new ArrayList<>(15);
+
+    private static final double BEDROCK_HORIZONTAL_PREDICTION_EPSILON = 0.08D;
     
     private final ArrayList<String> justUsedWorkarounds = new ArrayList<>();
     
@@ -195,6 +197,7 @@ public class SurvivalFly extends Check {
             //data.clearActiveHorVel();
             hFreedom = 0.0;
         }
+        hDistanceAboveLimit = applyBedrockHorizontalPredictionLeniency(player, pData, hDistanceAboveLimit);
 
 
         /////////////////////////////////////
@@ -233,6 +236,9 @@ public class SurvivalFly extends Check {
         final double result = (Math.max(hDistanceAboveLimit, 0.0) + Math.max(yDistanceAboveLimit, 0.0)) * 100D;
         if (result > 0.0) {
             final Location vLoc = handleViolation(result, player, from, to, data, cc);
+            logConsoleDetails(result, player, from, to, data, pData, thisMove, lastMove, hAllowedDistance,
+                    hDistanceAboveLimit, hFreedom, yAllowedDistance, yDistanceAboveLimit, fromOnGround, resetFrom,
+                    toOnGround, resetTo, tick, now, multiMoveCount, isNormalOrPacketSplitMove);
             if (inAir) {
                 data.sfVLInAir = true;
             }
@@ -752,6 +758,22 @@ public class SurvivalFly extends Check {
             }
         }
         return new double[]{thisMove.hAllowedDistance, hDistanceAboveLimit};
+    }
+
+    private double applyBedrockHorizontalPredictionLeniency(final Player player, final IPlayerData pData, final double hDistanceAboveLimit) {
+        if (hDistanceAboveLimit > 0.0 && isBedrockPlayer(player, pData) && hDistanceAboveLimit <= BEDROCK_HORIZONTAL_PREDICTION_EPSILON) {
+            tags.add("bedrock_hdistrel");
+            return 0.0;
+        }
+        return hDistanceAboveLimit;
+    }
+
+    private boolean isBedrockPlayer(final Player player, final IPlayerData pData) {
+        return pData.isBedrockPlayer() || player.getName().startsWith(".") || isFloodgateUuid(player);
+    }
+
+    private boolean isFloodgateUuid(final Player player) {
+        return player.getUniqueId().toString().startsWith("00000000-0000-0000-0009-");
     }
     
     
@@ -2086,7 +2108,129 @@ public class SurvivalFly extends Check {
         //}
         return new double[]{hAllowedDistance, hDistanceAboveLimit, 0.0};
     }
-    
+
+    private void logConsoleDetails(final double result,
+                                   final Player player, final PlayerLocation from, final PlayerLocation to,
+                                   final MovingData data, final IPlayerData pData,
+                                   final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                   final double hAllowedDistance, final double hDistanceAboveLimit,
+                                   final double hFreedom, final double yAllowedDistance,
+                                   final double yDistanceAboveLimit,
+                                   final boolean fromOnGround, final boolean resetFrom,
+                                   final boolean toOnGround, final boolean resetTo,
+                                   final int tick, final long now, final int multiMoveCount,
+                                   final boolean isNormalOrPacketSplitMove) {
+        final StringBuilder builder = new StringBuilder(1000);
+        builder.append("[NCP][SurvivalFly][detail] player=").append(player.getName())
+                .append(" bedrock=").append(isBedrockPlayer(player, pData))
+                .append(" bedrockData=").append(pData.isBedrockPlayer())
+                .append(" uuid=").append(player.getUniqueId())
+                .append(" tick=").append(tick)
+                .append(" now=").append(now)
+                .append(" moveCount=").append(data.getPlayerMoveCount())
+                .append(" multiMove=").append(multiMoveCount)
+                .append(" packetSplit=").append(isNormalOrPacketSplitMove)
+                .append(" addVL=").append(StringUtil.fdec3.format(result))
+                .append(" totalVL=").append(StringUtil.fdec3.format(data.survivalFlyVL))
+                .append(" hDist=").append(StringUtil.fdec6.format(thisMove.hDistance))
+                .append(" xDist=").append(StringUtil.fdec6.format(thisMove.xDistance))
+                .append(" zDist=").append(StringUtil.fdec6.format(thisMove.zDistance))
+                .append(" hAllowed=").append(StringUtil.fdec6.format(hAllowedDistance))
+                .append(" xAllowed=").append(StringUtil.fdec6.format(thisMove.xAllowedDistance))
+                .append(" zAllowed=").append(StringUtil.fdec6.format(thisMove.zAllowedDistance))
+                .append(" hOver=").append(StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0)))
+                .append(" hFreedom=").append(StringUtil.fdec6.format(hFreedom))
+                .append(" yDist=").append(StringUtil.fdec6.format(thisMove.yDistance))
+                .append(" yAllowed=").append(StringUtil.fdec6.format(yAllowedDistance))
+                .append(" yOver=").append(StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0)))
+                .append(" lastH=").append(lastMove.toIsValid ? StringUtil.fdec6.format(lastMove.hDistance) : "invalid")
+                .append(" lastY=").append(lastMove.toIsValid ? StringUtil.fdec6.format(lastMove.yDistance) : "invalid")
+                .append(" from=").append(formatLocation(from))
+                .append(" to=").append(formatLocation(to))
+                .append(" ground=").append(fromOnGround ? "on" : resetFrom ? "reset" : "air")
+                .append("->").append(toOnGround ? "on" : resetTo ? "reset" : "air")
+                .append(" fromFlags=").append(formatMoveFlags(thisMove))
+                .append(" lastFlags=").append(formatMoveFlags(lastMove))
+                .append(" impulse=").append(thisMove.hasImpulse)
+                .append('/').append(thisMove.forwardImpulse)
+                .append('/').append(thisMove.strafeImpulse)
+                .append(" collideXYZ=").append(thisMove.collideX).append('/').append(thisMove.collideY).append('/').append(thisMove.collideZ)
+                .append(" collideH=").append(thisMove.collidesHorizontally)
+                .append(" minorHCollide=").append(thisMove.negligibleHorizontalCollision)
+                .append(" playerState=sprint:").append(player.isSprinting())
+                .append(",sneak:").append(player.isSneaking())
+                .append(",fly:").append(player.isFlying())
+                .append(",allowFlight:").append(player.getAllowFlight())
+                .append(",vehicle:").append(player.isInsideVehicle())
+                .append(",gliding:").append(Bridge1_9.isGliding(player))
+                .append(",elytra:").append(Bridge1_9.isWearingElytra(player))
+                .append(",walkSpeed:").append(StringUtil.fdec3.format(player.getWalkSpeed()))
+                .append(" medium=water:").append(StringUtil.fdec3.format(thisMove.submergedWaterHeight))
+                .append(",lava:").append(StringUtil.fdec3.format(thisMove.submergedLavaHeight))
+                .append(",friction:").append(StringUtil.fdec3.format(data.lastFrictionHorizontal)).append("->").append(StringUtil.fdec3.format(data.nextFrictionHorizontal))
+                .append(",stuckH:").append(StringUtil.fdec3.format(data.lastStuckInBlockHorizontal)).append("->").append(StringUtil.fdec3.format(data.nextStuckInBlockHorizontal))
+                .append(" speedData=walk:").append(StringUtil.fdec3.format(data.walkSpeed)).append("->").append(StringUtil.fdec3.format(data.nextWalkSpeed))
+                .append(",speedTick:").append(data.speedTick)
+                .append(",jumpDelay:").append(data.jumpDelay)
+                .append(",setbackAge:").append(data.timeSinceSetBack)
+                .append(" jumpPhase=").append(data.sfJumpPhase)
+                .append(" liftOff=").append(data.liftOffEnvelope.name())
+                .append(" lastValid=").append(lastMove.toIsValid)
+                .append(" correctedPre=").append(formatCorrectedPre(thisMove))
+                .append(" correctedPost=").append(formatCorrectedPost(thisMove))
+                .append(" hiddenIdx=").append(thisMove.hiddenDistanceIndex).append('/').append(thisMove.hiddenYDistanceIndex)
+                .append(" stopMotion=").append(thisMove.possibleStopMotion)
+                .append(" vVelUsed=").append(thisMove.verVelUsed)
+                .append(" velQueued=").append(formatVelocity(data))
+                .append(" tags=").append(StringUtil.join(tags, "+"));
+        player.getServer().getLogger().info(builder.toString());
+    }
+
+    private String formatMoveFlags(final PlayerMoveData move) {
+        if (!move.valid) {
+            return "invalid";
+        }
+        final StringBuilder builder = new StringBuilder(80);
+        builder.append(move.touchedGround ? "tg" : "no-tg")
+                .append(move.touchedGroundWorkaround ? ",tg-workaround" : "")
+                .append(move.fromLostGround ? ",from-lost" : "")
+                .append(move.toLostGround ? ",to-lost" : "")
+                .append(move.headObstructed ? ",head-obstructed" : "")
+                .append(move.bunnyHop ? ",bunny" : "")
+                .append(move.isStepUp ? ",step-up" : "")
+                .append(move.isJump ? ",jump" : "")
+                .append(move.couldStepUp ? ",could-step" : "")
+                .append(move.hasAttackSlowDown ? ",attack-slow" : "")
+                .append(move.hasNoMovementDueToDuplicatePacket ? ",duplicate-packet" : "")
+                .append(move.tridentRelease.decideOptimistically() ? ",trident" : "");
+        return builder.toString();
+    }
+
+    private String formatCorrectedPre(final PlayerMoveData move) {
+        return StringUtil.fdec6.format(move.xCorrectedDistancePre) + ","
+                + StringUtil.fdec6.format(move.yCorrectedDistancePre) + ","
+                + StringUtil.fdec6.format(move.zCorrectedDistancePre);
+    }
+
+    private String formatCorrectedPost(final PlayerMoveData move) {
+        return StringUtil.fdec6.format(move.xCorrectedDistancePost) + ","
+                + StringUtil.fdec6.format(move.zCorrectedDistancePost);
+    }
+
+    private String formatVelocity(final MovingData data) {
+        final StringBuilder builder = new StringBuilder(120);
+        data.addHorizontalVelocity(builder);
+        data.addVerticalVelocity(builder);
+        if (builder.length() == 0) {
+            return "none";
+        }
+        return builder.toString().replace('\n', ' ').trim();
+    }
+
+    private String formatLocation(final PlayerLocation location) {
+        return String.format(Locale.US, "%.3f,%.3f,%.3f", location.getX(), location.getY(), location.getZ());
+    }
+
     /**
      * Handles a violation for Survivalfly.
      * 

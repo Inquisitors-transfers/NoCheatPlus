@@ -1,3 +1,53 @@
+/*
+ * This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+package fr.neatmonster.nocheatplus.test;
+
+import org.bukkit.Material;
+import org.junit.Before;
+import org.junit.Test;
+
+import fr.neatmonster.nocheatplus.compat.bukkit.BridgeMaterial;
+import fr.neatmonster.nocheatplus.logging.StaticLog;
+import fr.neatmonster.nocheatplus.utilities.build.BuildParameters;
+import fr.neatmonster.nocheatplus.utilities.collision.tracing.ray.PassableRayTracing;
+import fr.neatmonster.nocheatplus.utilities.map.BlockFlags;
+import fr.neatmonster.nocheatplus.utilities.map.FakeBlockCache;
+import fr.neatmonster.nocheatplus.MockServerBase;
+
+public class TestPassableRayTracing extends MockServerBase {
+    
+    // TODO: Which tests to run on ICollidePassable with PassableAxisRayTracing as well...
+
+    // TODO: Moving into a block, 
+    // TODO: Moving out of a block
+    // TODO: Moving horizontally on various kinds of ground (normal, half blocks)
+    // TODO: Moving up stairs etc ?
+    // TODO: From ground and onto ground moves, onto-edge moves (block before edge, into block, etc).
+    // TODO: Randomized tests (Collide with inner sphere, not collide with outer sphere).
+
+    @Before
+    public void initBlockProperties() {
+        StaticLog.setUseLogManager(false);
+        BlockTests.initBlockProperties();
+        StaticLog.setUseLogManager(true);
+        BlockFlags.setBlockFlags(Material.STONE, BlockFlags.FULLY_SOLID_BOUNDS);
+    }
+
+    @Test
+    public void testAir() {
+        FakeBlockCache bc = new FakeBlockCache();
         PassableRayTracing rt = new PassableRayTracing();
         rt.setBlockCache(bc);
         double[] coords = new double[]{0.5, 0.5, -0.5, 0.5, 0.5, 1.5};

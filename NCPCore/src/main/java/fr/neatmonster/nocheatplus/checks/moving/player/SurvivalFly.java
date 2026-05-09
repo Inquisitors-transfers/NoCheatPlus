@@ -90,10 +90,10 @@ public class SurvivalFly extends Check {
     private static final double BEDROCK_HALF_STEP_VERTICAL_MOVE = 0.50D;
     private static final double BEDROCK_HALF_STEP_VERTICAL_EPSILON = 0.015D;
     private static final double BEDROCK_HALF_STEP_VERTICAL_OVER_GRACE = 0.55D;
-    private static final double BEDROCK_HALF_STEP_HORIZONTAL_OVER_GRACE = 0.25D;
-    private static final double BEDROCK_HALF_STEP_HORIZONTAL_MOVE_GRACE = 0.55D;
-    private static final double BEDROCK_STEP_HORIZONTAL_OVER_GRACE = 0.25D;
-    private static final double BEDROCK_STEP_HORIZONTAL_MOVE_GRACE = 0.60D;
+    private static final double BEDROCK_HALF_STEP_HORIZONTAL_OVER_GRACE = 0.50D;
+    private static final double BEDROCK_HALF_STEP_HORIZONTAL_MOVE_GRACE = 0.65D;
+    private static final double BEDROCK_STEP_HORIZONTAL_OVER_GRACE = 0.50D;
+    private static final double BEDROCK_STEP_HORIZONTAL_MOVE_GRACE = 0.65D;
     private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_OVER_GRACE = 0.55D;
     private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_MOVE_GRACE = 0.05D;
     private static final double BEDROCK_STEP_VERTICAL_MODEL_GRACE = 0.02D;
@@ -104,7 +104,11 @@ public class SurvivalFly extends Check {
     private static final double SERVER_VERTICAL_VELOCITY_HORIZONTAL_MOVE_GRACE = 0.65D;
     private static final double SERVER_VERTICAL_VELOCITY_ASCEND_GRACE = 1.20D;
     private static final double GROUNDED_ITEM_RESYNC_HORIZONTAL_OVER_GRACE = 0.12D;
-    private static final double GROUNDED_ITEM_RESYNC_MOVE_GRACE = 0.20D;
+    private static final double GROUNDED_ITEM_RESYNC_MOVE_GRACE = 0.25D;
+    private static final double THIN_SUPPORT_HORIZONTAL_OVER_GRACE = 0.12D;
+    private static final double THIN_SUPPORT_HORIZONTAL_MOVE_GRACE = 0.30D;
+    private static final double THIN_SUPPORT_VERTICAL_OVER_GRACE = 0.46D;
+    private static final double THIN_SUPPORT_VERTICAL_MOVE_GRACE = 0.45D;
     private static final double NEWER_CLIENT_HORIZONTAL_OVER_GRACE = 0.04D;
     private static final double NEWER_CLIENT_HORIZONTAL_MOVE_GRACE = 0.34D;
     private static final double GROUNDED_SETBACK_HORIZONTAL_GRACE = 0.10D;
@@ -149,11 +153,13 @@ public class SurvivalFly extends Check {
     private static final double GLIDING_FIREWORK_VERTICAL_OVER_GRACE = 0.90D;
     private static final double GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE = 0.15D;
     private static final double GLIDING_FIREWORK_MOVE_GRACE = 2.25D;
-    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE = 0.45D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE = 0.70D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE = 0.12D;
-    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.12D;
-    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE = 0.75D;
-    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE = 0.43D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.35D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE = 0.85D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE = 0.70D;
+    private static final double ELYTRA_EQUIPPED_GROUND_HORIZONTAL_OVER_GRACE = 0.25D;
+    private static final double ELYTRA_EQUIPPED_GROUND_MOVE_GRACE = 0.65D;
     private static final double ELYTRA_LIFTOFF_VERTICAL_OVER_GRACE = 0.095D;
     private static final double ELYTRA_LIFTOFF_MAX_ASCEND = 0.44D;
     private static final double ELYTRA_LIFTOFF_LAST_Y_GRACE = 0.02D;
@@ -968,6 +974,20 @@ public class SurvivalFly extends Check {
         if (hDistanceAboveLimit <= 0.0) {
             return hDistanceAboveLimit;
         }
+        if (isElytraEquippedVelocityHorizontalGrace(player, from, to, thisMove, lastMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("elytra_equipped_velocity_horizontal_grace");
+            return 0.0;
+        }
+        if (isElytraEquippedGroundHorizontalGrace(player, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("elytra_equipped_ground_horizontal_grace");
+            return 0.0;
+        }
         if (isElytraGeometryStallHorizontalGrace(player, thisMove, lastMove, hDistanceAboveLimit)) {
             thisMove.xAllowedDistance = thisMove.xDistance;
             thisMove.zAllowedDistance = thisMove.zDistance;
@@ -1008,6 +1028,13 @@ public class SurvivalFly extends Check {
             thisMove.zAllowedDistance = thisMove.zDistance;
             thisMove.hAllowedDistance = thisMove.hDistance;
             tags.add("grounded_itemresync_horizontal_grace");
+            return 0.0;
+        }
+        if (isThinSupportHorizontalGrace(player, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("thin_support_horizontal_grace");
             return 0.0;
         }
         if (isWaterHorizontalGrace(from, to, thisMove, hDistanceAboveLimit)) {
@@ -1130,6 +1157,21 @@ public class SurvivalFly extends Check {
                 && thisMove.hDistance <= GROUNDED_ITEM_RESYNC_MOVE_GRACE;
     }
 
+    private boolean isThinSupportHorizontalGrace(final Player player,
+                                                 final PlayerLocation from, final PlayerLocation to,
+                                                 final PlayerMoveData thisMove,
+                                                 final double hDistanceAboveLimit) {
+        return !Bridge1_9.isGliding(player)
+                && isThinSupportNear(from, to)
+                && isGroundishStepMove(from, to, thisMove)
+                && hDistanceAboveLimit <= THIN_SUPPORT_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= THIN_SUPPORT_HORIZONTAL_MOVE_GRACE
+                && thisMove.yDistance >= -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= THIN_SUPPORT_VERTICAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
     private boolean isWaterHorizontalGrace(final PlayerLocation from, final PlayerLocation to,
                                            final PlayerMoveData thisMove,
                                            final double hDistanceAboveLimit) {
@@ -1152,6 +1194,27 @@ public class SurvivalFly extends Check {
                 && thisMove.hDistance <= CLIMBABLE_HORIZONTAL_MOVE_GRACE
                 && thisMove.yDistance >= -CLIMBABLE_DESCEND_GRACE
                 && thisMove.yDistance <= CLIMBABLE_ASCEND_GRACE;
+    }
+
+    private boolean isElytraEquippedVelocityHorizontalGrace(final Player player,
+                                                            final PlayerLocation from, final PlayerLocation to,
+                                                            final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                            final double hDistanceAboveLimit) {
+        return isElytraEquippedVelocityMove(player, from, to, thisMove, lastMove, 0.0D, hDistanceAboveLimit, false);
+    }
+
+    private boolean isElytraEquippedGroundHorizontalGrace(final Player player,
+                                                          final PlayerLocation from, final PlayerLocation to,
+                                                          final PlayerMoveData thisMove,
+                                                          final double hDistanceAboveLimit) {
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && isGroundishStepMove(from, to, thisMove)
+                && Math.abs(thisMove.yDistance) <= Magic.PREDICTION_EPSILON
+                && hDistanceAboveLimit <= ELYTRA_EQUIPPED_GROUND_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_EQUIPPED_GROUND_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
     }
 
     private boolean isElytraGeometryStallHorizontalGrace(final Player player,
@@ -1203,6 +1266,11 @@ public class SurvivalFly extends Check {
         if (isBedrockStepVerticalUndershootGrace(player, pData, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
             thisMove.yAllowedDistance = thisMove.yDistance;
             tags.add("bedrock_step_vertical_undershoot_grace");
+            return 0.0;
+        }
+        if (isThinSupportVerticalGrace(player, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("thin_support_vertical_grace");
             return 0.0;
         }
         if (isElytraEquippedVerticalVelocityGrace(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
@@ -1330,13 +1398,22 @@ public class SurvivalFly extends Check {
                                                           final PlayerMoveData thisMove, final PlayerMoveData lastMove,
                                                           final double yDistanceAboveLimit,
                                                           final double hDistanceAboveLimit) {
+        return isElytraEquippedVelocityMove(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit, true);
+    }
+
+    private boolean isElytraEquippedVelocityMove(final Player player,
+                                                 final PlayerLocation from, final PlayerLocation to,
+                                                 final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                 final double yDistanceAboveLimit,
+                                                 final double hDistanceAboveLimit,
+                                                 final boolean checkVerticalLimit) {
         if (!Bridge1_9.isWearingElytra(player)
                 || Bridge1_9.isGliding(player)
                 || thisMove.yDistance <= 0.0D
                 || thisMove.yDistance > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE
                 || thisMove.hDistance > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE
                 || hDistanceAboveLimit > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE
-                || yDistanceAboveLimit > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE
+                || checkVerticalLimit && yDistanceAboveLimit > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE
                 || from.isInLiquid() || to.isInLiquid()
                 || thisMove.from.inLiquid || thisMove.to.inLiquid) {
             return false;
@@ -1348,11 +1425,11 @@ public class SurvivalFly extends Check {
                 || tags.contains("onground_env") || tags.contains("v_air");
         final boolean currentVelocity = velocityY > 0.20D
                 && velocityY <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE + 0.02D
-                && Math.abs(thisMove.yDistance - velocityY) <= 0.08D;
+                && Math.abs(thisMove.yDistance - velocityY) <= 0.10D;
         final boolean followUp = lastMove.toIsValid
                 && lastMove.yDistance > 0.30D
                 && lastMove.yDistance <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE
-                && yDistanceAboveLimit <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE
+                && (!checkVerticalLimit || yDistanceAboveLimit <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE)
                 && (tags.contains("hvel_current") || tags.contains("hvel") || velocityY > 0.20D);
         return groundish && (currentVelocity || followUp);
     }
@@ -1429,6 +1506,37 @@ public class SurvivalFly extends Check {
     private boolean isStepBlock(final Material material) {
         return material != null
                 && (BlockProperties.isStairs(material) || MaterialUtil.SLABS.contains(material));
+    }
+
+    private boolean isThinSupportVerticalGrace(final Player player,
+                                               final PlayerLocation from, final PlayerLocation to,
+                                               final PlayerMoveData thisMove,
+                                               final double yDistanceAboveLimit,
+                                               final double hDistanceAboveLimit) {
+        return !Bridge1_9.isGliding(player)
+                && isThinSupportNear(from, to)
+                && isGroundishStepMove(from, to, thisMove)
+                && yDistanceAboveLimit <= THIN_SUPPORT_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= THIN_SUPPORT_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= THIN_SUPPORT_HORIZONTAL_MOVE_GRACE
+                && thisMove.yDistance >= -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= THIN_SUPPORT_VERTICAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isThinSupportNear(final PlayerLocation from, final PlayerLocation to) {
+        return isThinSupportBlock(from.getBlockType())
+                || isThinSupportBlock(from.getBlockTypeBelow())
+                || isThinSupportBlock(to.getBlockType())
+                || isThinSupportBlock(to.getBlockTypeBelow());
+    }
+
+    private boolean isThinSupportBlock(final Material material) {
+        return material != null
+                && (MaterialUtil.LANTERNS.contains(material)
+                    || MaterialUtil.ALL_TRAP_DOORS.contains(material)
+                    || MaterialUtil.CARPETS.contains(material));
     }
 
     private boolean isGlidingStallVerticalGrace(final Player player, final MovingData data,

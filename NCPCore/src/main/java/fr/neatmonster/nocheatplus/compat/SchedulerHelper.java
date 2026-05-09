@@ -32,6 +32,7 @@ import fr.neatmonster.nocheatplus.utilities.ReflectionUtil;
 /**
  * Utility class to provide compatibility with Paper's regionized, multi-threaded server implementation (a.k.a.: Folia), using reflection.
  * If the server is not running Folia, use Bukkit's scheduler.
+ * Keep Folia-specific calls here so the rest of NCP can stay source-compatible with regular Bukkit/Paper APIs.
  */
 public class SchedulerHelper {
 
@@ -165,6 +166,7 @@ public class SchedulerHelper {
         if (!isFoliaServer) {
             return Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> run.accept(null)).getTaskId();
         }
+        // Folia async scheduler signatures have moved across builds; these callers already do async-safe work.
         //try {
         //    Method getSchedulerMethod = ReflectionUtil.getMethodNoArgs(Server.class, "getAsyncScheduler", AsyncScheduler);
         //    Object asyncScheduler = getSchedulerMethod.invoke(Bukkit.getServer());

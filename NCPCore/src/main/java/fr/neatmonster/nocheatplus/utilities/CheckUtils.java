@@ -81,6 +81,7 @@ public class CheckUtils {
     }
 
     public static boolean shouldLogDebugToConsole() {
+        // This gates the extra diagnostic console spam added for compatibility tuning, not the normal NCP backend loggers.
         return ConfigManager.getConfigFile().getBoolean(ConfPaths.LOGGING_DEBUG_TO_CONSOLE, true);
     }
 

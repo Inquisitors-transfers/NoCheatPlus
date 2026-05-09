@@ -50,6 +50,7 @@ public class DefaultConfig extends ConfigFile {
         //        not set(ConfPaths.CONFIGVERSION_SAVED, -1);
         set(ConfPaths.LOGGING_ACTIVE, true, 154);
         set(ConfPaths.LOGGING_MAXQUEUESIZE, 5000, 154);
+        // Allows test servers to disable the verbose compatibility diagnostics without turning off normal violation logging.
         set(ConfPaths.LOGGING_DEBUG_TO_CONSOLE, true, 154);
         set(ConfPaths.LOGGING_EXTENDED_STATUS, false, 154);
         set(ConfPaths.LOGGING_EXTENDED_COMMANDS_ACTIONS, false, 1090);

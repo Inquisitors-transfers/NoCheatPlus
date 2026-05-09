@@ -544,6 +544,7 @@ public class NetData extends ACheckData {
         final Location knownLocation = player.getLocation();
         final MovingData mData = pData.getGenericInstance(MovingData.class);
         Object task = null;
+        // Packet-level set backs must run on the player's owning region on Folia.
         task = SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
             /** Get the first set-back location that might be available */
             final Location newTo = mData.hasSetBack() ? mData.getSetBack(knownLocation) :

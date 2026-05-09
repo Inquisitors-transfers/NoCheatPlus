@@ -83,6 +83,7 @@ public abstract class ConfPaths {
     public static final String  LOGGING_ACTIVE                           = LOGGING + SUB_ACTIVE;
     public static final String  LOGGING_MAXQUEUESIZE                     = LOGGING + "max-queue-size";
     private static final String LOGGING_DEBUG_SECTION                    = LOGGING + "debug.";
+    /** Toggle for custom verbose diagnostic lines such as [NCP][SurvivalFly][detail]. */
     public static final String  LOGGING_DEBUG_TO_CONSOLE                 = LOGGING_DEBUG_SECTION + "to-console";
 
     private static final String LOGGING_BACKEND                          = LOGGING + "backend.";

@@ -81,6 +81,11 @@ public class SurvivalFly extends Check {
     /** To join some tags with moving check violations. */
     private final ArrayList<String> tags = new ArrayList<>(15);
 
+    /*
+     * Bedrock/Geyser clients can disagree with the Java movement model around
+     * combat knockback and half-block geometry. These values are only used by
+     * Bedrock-gated helper methods so they do not widen Java client movement.
+     */
     private static final double BEDROCK_HORIZONTAL_PREDICTION_EPSILON = 0.08D;
     private static final double BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE = 0.75D;
     private static final double BEDROCK_GROUNDED_COMBAT_MOVE_GRACE = 0.75D;
@@ -97,6 +102,11 @@ public class SurvivalFly extends Check {
     private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_OVER_GRACE = 0.55D;
     private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_MOVE_GRACE = 0.05D;
     private static final double BEDROCK_STEP_VERTICAL_MODEL_GRACE = 0.02D;
+    /*
+     * Server-applied velocity can arrive one movement packet apart from the
+     * player's position update. These graces let legitimate boosts/knockback
+     * explain a small horizontal miss before SurvivalFly adds VL.
+     */
     private static final double GROUNDED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.35D;
     private static final double GROUNDED_VERTICAL_VELOCITY_MOVE_GRACE = 0.80D;
     private static final double GROUNDED_VERTICAL_VELOCITY_MOVE_Y_GRACE = 0.45D;
@@ -105,6 +115,10 @@ public class SurvivalFly extends Check {
     private static final double SERVER_VERTICAL_VELOCITY_ASCEND_GRACE = 1.20D;
     private static final double GROUNDED_ITEM_RESYNC_HORIZONTAL_OVER_GRACE = 0.12D;
     private static final double GROUNDED_ITEM_RESYNC_MOVE_GRACE = 0.25D;
+    /*
+     * Lanterns, trapdoors, and carpets have thin support/collision shapes. The
+     * old full-block model can see these as air and repeatedly set players back.
+     */
     private static final double THIN_SUPPORT_HORIZONTAL_OVER_GRACE = 0.12D;
     private static final double THIN_SUPPORT_HORIZONTAL_MOVE_GRACE = 0.30D;
     private static final double THIN_SUPPORT_VERTICAL_OVER_GRACE = 0.46D;
@@ -153,6 +167,10 @@ public class SurvivalFly extends Check {
     private static final double GLIDING_FIREWORK_VERTICAL_OVER_GRACE = 0.90D;
     private static final double GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE = 0.15D;
     private static final double GLIDING_FIREWORK_MOVE_GRACE = 2.25D;
+    /*
+     * Wearing an elytra is not the same as actively gliding. These handle launch
+     * and velocity transition packets before Bukkit reports normal gliding state.
+     */
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE = 0.70D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE = 0.12D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.35D;
@@ -974,6 +992,7 @@ public class SurvivalFly extends Check {
         if (hDistanceAboveLimit <= 0.0) {
             return hDistanceAboveLimit;
         }
+        // These branches run after the normal model misses; each one stays narrow and tags the reason for diagnostics.
         if (isElytraEquippedVelocityHorizontalGrace(player, from, to, thisMove, lastMove, hDistanceAboveLimit)) {
             thisMove.xAllowedDistance = thisMove.xDistance;
             thisMove.zAllowedDistance = thisMove.zDistance;
@@ -1112,6 +1131,7 @@ public class SurvivalFly extends Check {
                                                  final PlayerLocation from, final PlayerLocation to,
                                                  final PlayerMoveData thisMove,
                                                  final double hDistanceAboveLimit) {
+        // Bedrock step packets can report the expected 0.5 block rise with more horizontal carry than Java predicts.
         if (!isBedrockPlayer(player, pData)
                 || Bridge1_9.isGliding(player)
                 || hDistanceAboveLimit > BEDROCK_STEP_HORIZONTAL_OVER_GRACE
@@ -1161,6 +1181,7 @@ public class SurvivalFly extends Check {
                                                  final PlayerLocation from, final PlayerLocation to,
                                                  final PlayerMoveData thisMove,
                                                  final double hDistanceAboveLimit) {
+        // Thin supports can keep a player valid while the surrounding movement model still looks like air.
         return !Bridge1_9.isGliding(player)
                 && isThinSupportNear(from, to)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1207,6 +1228,7 @@ public class SurvivalFly extends Check {
                                                           final PlayerLocation from, final PlayerLocation to,
                                                           final PlayerMoveData thisMove,
                                                           final double hDistanceAboveLimit) {
+        // Elytra-equipped players can briefly slide/launch on the ground before gliding is active.
         return Bridge1_9.isWearingElytra(player)
                 && !Bridge1_9.isGliding(player)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1407,6 +1429,7 @@ public class SurvivalFly extends Check {
                                                  final double yDistanceAboveLimit,
                                                  final double hDistanceAboveLimit,
                                                  final boolean checkVerticalLimit) {
+        // Firework/launch transitions can apply upward velocity before the player is formally in gliding state.
         if (!Bridge1_9.isWearingElytra(player)
                 || Bridge1_9.isGliding(player)
                 || thisMove.yDistance <= 0.0D
@@ -1455,6 +1478,7 @@ public class SurvivalFly extends Check {
                                                    final PlayerMoveData thisMove,
                                                    final double yDistanceAboveLimit,
                                                    final double hDistanceAboveLimit) {
+        // Mirrors the horizontal Bedrock step grace for the vertical violation path.
         final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
                 || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
                 || thisMove.touchedGround || thisMove.touchedGroundWorkaround
@@ -1475,6 +1499,7 @@ public class SurvivalFly extends Check {
                                                          final PlayerMoveData thisMove,
                                                          final double yDistanceAboveLimit,
                                                          final double hDistanceAboveLimit) {
+        // Bedrock sometimes sends the horizontal step packet before the matching 0.5 block Y delta.
         return isBedrockPlayer(player, pData)
                 && !Bridge1_9.isGliding(player)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1513,6 +1538,7 @@ public class SurvivalFly extends Check {
                                                final PlayerMoveData thisMove,
                                                final double yDistanceAboveLimit,
                                                final double hDistanceAboveLimit) {
+        // Prevent lantern/trapdoor/carpet support from becoming a vertical setback loop.
         return !Bridge1_9.isGliding(player)
                 && isThinSupportNear(from, to)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1631,6 +1657,7 @@ public class SurvivalFly extends Check {
     }
 
     private boolean isBedrockPlayer(final Player player, final IPlayerData pData) {
+        // Prefer stored player data, then fall back to common Floodgate/Geyser identifiers used during login/session setup.
         return pData.isBedrockPlayer() || player.getName().startsWith(".") || isFloodgateUuid(player) || isFloodgatePlayer(player) || isGeyserPlayer(player);
     }
 

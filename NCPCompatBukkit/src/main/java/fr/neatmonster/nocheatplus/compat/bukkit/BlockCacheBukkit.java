@@ -21,6 +21,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 
 import fr.neatmonster.nocheatplus.compat.Bridge1_13;
+import fr.neatmonster.nocheatplus.compat.SchedulerHelper;
 import fr.neatmonster.nocheatplus.utilities.map.BlockCache;
 import fr.neatmonster.nocheatplus.utilities.map.BlockFlags;
 import fr.neatmonster.nocheatplus.utilities.map.BlockProperties;
@@ -50,6 +51,9 @@ public class BlockCacheBukkit extends BlockCache {
     @Override
     public Material fetchTypeId(final int x, final int y, final int z) {
         // TODO: consider setting type id and data at once.
+        if (world == null || !SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+            return Material.AIR;
+        }
         return world.getBlockAt(x, y, z).getType();
     }
 
@@ -57,6 +61,9 @@ public class BlockCacheBukkit extends BlockCache {
     @Override
     public int fetchData(final int x, final int y, final int z) {
         // TODO: consider setting type id and data at once.
+        if (world == null || !SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+            return 0;
+        }
         return Bridge1_13.hasIsSwimming() ? 0 : world.getBlockAt(x, y, z).getData();
     }
 
@@ -74,11 +81,17 @@ public class BlockCacheBukkit extends BlockCache {
 
     @Override
     public boolean standsOnEntity(final Entity entity, final double minX, final double minY, final double minZ, final double maxX, final double maxY, final double maxZ){
+        if (!SchedulerHelper.isOwnedByCurrentRegion(entity)) {
+            return false;
+        }
         try{
             // TODO: Probably check other ids too before doing this ?
             for (final Entity other : entity.getNearbyEntities(2.0, 2.0, 2.0)){
+                if (!SchedulerHelper.isOwnedByCurrentRegion(other)) {
+                    continue;
+                }
                 final EntityType type = other.getType();
-                if (!MaterialUtil.isBoat(type) && type != EntityType.SHULKER){ //  && !(other instanceof Minecart)) 
+                if (!MaterialUtil.isBoat(type) && type != EntityType.SHULKER){ //  && !(other instanceof Minecart))
                     continue;
                 }
                 final double locY = entity.getLocation(useLoc).getY();

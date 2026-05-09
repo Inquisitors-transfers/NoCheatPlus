@@ -298,9 +298,8 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
                 if (!MaterialUtil.isBoat(type)) { 
                     continue; 
                 }
-                final Material m = other.getLocation().getBlock().getType();
                 final double locY = other.getLocation().getY();
-                return Math.abs(locY - minY) < 0.7 && BlockProperties.isLiquid(m);
+                return Math.abs(locY - minY) < 1.3;
             }
         return false;
     }
@@ -565,6 +564,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             return;
         }
         final MovingConfig cc = pData.getGenericInstance(MovingConfig.class);
+        pData.getGenericInstance(NetData.class).recordTeleportEvent(to, event.getCause().name());
         // Detect our own player set backs.
         if (data.hasTeleported() && onPlayerTeleportMonitorHasTeleported(player, event, to, data, cc, pData)) {
             data.clearWindChargeImpulse(); // Always clear this data.
@@ -715,15 +715,52 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         data.lastMoveTime = now; 
         mData.mcFallDistance = player.getFallDistance();
         final Location from = event.getFrom();
+        final Location to = event.getTo();
+        if (!isFoliaMoveRegionSafe(from, to)) {
+            if (pData.isDebugActive(checkType)) {
+                debugUnsafeFoliaMove(player, "Skip PlayerMoveEvent monitor", from, to);
+            }
+            return;
+        }
         // Feed yawrate and reset moving data positions if necessary.
         final int tick = TickTask.getTick();
         final MovingConfig mCc = pData.getGenericInstance(MovingConfig.class);
         if (!event.isCancelled()) {
             final Location pLoc = player.getLocation(useLoc);
-            onMoveMonitorNotCancelled(player, TrigUtil.isSamePosAndLook(pLoc, from) ? from : pLoc, event.getTo(), now, tick, data, mData, mCc, pData);
+            onMoveMonitorNotCancelled(player, TrigUtil.isSamePosAndLook(pLoc, from) ? from : pLoc, to, now, tick, data, mData, mCc, pData);
             useLoc.setWorld(null);
         }
         else onCancelledMove(player, from, tick, now, mData, mCc, data, pData);
+    }
+
+    private boolean isFoliaMoveRegionSafe(final Location from, final Location to) {
+        return !SchedulerHelper.isFoliaServer()
+            || SchedulerHelper.isOwnedByCurrentRegion(from, 1)
+            && SchedulerHelper.isOwnedByCurrentRegion(to, 1);
+    }
+
+    private String formatFoliaMoveLocation(final Location location) {
+        return location == null ? "null" : LocUtil.simpleFormat(location);
+    }
+
+    private void debugUnsafeFoliaMove(final Player player, final String prefix, final Location from, final Location to) {
+        debug(player, prefix + ": movement touches a non-owned Folia region. from: "
+            + formatFoliaMoveLocation(from) + " , to: " + formatFoliaMoveLocation(to));
+    }
+
+    private void skipUnsafeFoliaMove(final Player player, final Location from, final Location to, final MovingData data, final boolean debug) {
+        final Location ref = to != null ? to : from;
+        data.clearMostMovingCheckData();
+        if (ref != null) {
+            data.setSetBack(ref);
+            data.lastY = ref.getY();
+        }
+        data.joinOrRespawn = false;
+        data.lastMoveNoMove = false;
+        processingEvents.remove(player.getName());
+        if (debug) {
+            debugUnsafeFoliaMove(player, "Skip PlayerMoveEvent checks", from, to);
+        }
     }
     
 
@@ -744,6 +781,14 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         /** New "to" location where to set back the player to. Requested by vehicle checks */
         Location newTo = null;
         data.increasePlayerMoveCount();
+        if (!isFoliaMoveRegionSafe(from, to)) {
+            skipUnsafeFoliaMove(player, from, to, data, debug);
+            return;
+        }
+        if (SchedulerHelper.isFoliaServer() && player.isInsideVehicle() && !SchedulerHelper.isOwnedByCurrentRegion(player.getVehicle())) {
+            skipUnsafeFoliaMove(player, from, to, data, debug);
+            return;
+        }
 
         ////////////////////////////////////////////////////
         // Early return tests (no full processing).       //
@@ -757,6 +802,14 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             newTo = vehicleChecks.onPlayerMoveVehicle(player, from, to, data, pData);
             earlyReturn = true;
             token = "vehicle";
+        }
+        else if (standsOnEntity(player, Math.min(from.getY(), to.getY()))) {
+            // Standing on boats produces player moves from the support/passenger
+            // handoff that do not follow the normal walking/jumping envelope.
+            data.setSetBack(to);
+            data.survivalFlyVL *= 0.95;
+            earlyReturn = true;
+            token = "boat-support";
         }
         else if (data.lastVehicleType == EntityType.MINECART && ServerIsAtLeast1_19_4
             // The setback comes from VehicleChecks#onPlayerVehicleLeave
@@ -1107,6 +1160,10 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
                             currentToIndex = count >= maxSplit ? -1 : i;
                             /* The 'to' location skipped/lost by Bukkit in the flying queue. Use Bukkit's "to" if the maximum split was reached */
                             Location packetTo = count >= maxSplit ? to : new Location(from.getWorld(), filteredFlyingQueue[i].getX(), filteredFlyingQueue[i].getY(), filteredFlyingQueue[i].getZ(), currentYaw, currentPitch);
+                            if (!isFoliaMoveRegionSafe(packet, packetTo)) {
+                                skipUnsafeFoliaMove(player, packet, packetTo, data, debug);
+                                break;
+                            }
                             // Finally, set the moving data to be used by checks.
                             moveInfo.set(player, packet, packetTo, cc.yOnGround);
                             // Finally, remap the input for this move.
@@ -1161,6 +1218,10 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
      */
     private void bukkitSplitMove(final Player player, final PlayerMoveInfo moveInfo, final Location from, final Location loc, final Location to, 
                                  final boolean debug, final MovingData data, final MovingConfig cc, final IPlayerData pData, final PlayerMoveEvent event) {
+        if (!isFoliaMoveRegionSafe(from, loc) || !isFoliaMoveRegionSafe(loc, to)) {
+            skipUnsafeFoliaMove(player, from, to, data, debug);
+            return;
+        }
         // 1: Use player#getLocation() as the "to" location (from->loc).
         moveInfo.set(player, from, loc, cc.yOnGround);
         if (debug) {
@@ -1982,13 +2043,27 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
     private void onMoveMonitorNotCancelled(final Player player, final Location from, final Location to, 
                                            final long now, final long tick, final CombinedData data, 
                                            final MovingData mData, final MovingConfig mCc, final IPlayerData pData) {
-        final String toWorldName = to.getWorld().getName();
         final boolean debug = pData.isDebugActive(checkType);
+        if (!isFoliaMoveRegionSafe(from, to)) {
+            if (debug) {
+                debugUnsafeFoliaMove(player, "Skip PlayerMoveEvent monitor follow-up", from, to);
+            }
+            return;
+        }
+        final String toWorldName = to.getWorld().getName();
         Combined.feedYawRate(player, to.getYaw(), now, toWorldName, data, pData);
         // TODO: maybe even not count vehicles at all ?
         if (player.isInsideVehicle()) {
             // TODO: refine (!).
-            final Location ref = player.getVehicle().getLocation(useLoc);
+            final Entity vehicle = player.getVehicle();
+            if (!SchedulerHelper.isOwnedByCurrentRegion(vehicle)) {
+                if (debug) {
+                    debug(player, "Skip PlayerMoveEvent vehicle monitor follow-up: vehicle is not owned by the current Folia region.");
+                }
+                mData.clearVehicleData();
+                return;
+            }
+            final Location ref = vehicle.getLocation(useLoc);
             aux.resetPositionsAndMediumProperties(player, ref, mData, mCc); // TODO: Consider using to and intercept cheat attempts in another way.
             useLoc.setWorld(null);
             mData.updateTrace(player, to, tick, mcAccess.getHandle()); // TODO: Can you become invincible by sending special moves?

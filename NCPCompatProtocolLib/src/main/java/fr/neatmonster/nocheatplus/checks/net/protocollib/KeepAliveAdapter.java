@@ -20,8 +20,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import com.comphenix.protocol.PacketType;
+import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketEvent;
+import com.comphenix.protocol.reflect.StructureModifier;
 
 import fr.neatmonster.nocheatplus.NCPAPIProvider;
 import fr.neatmonster.nocheatplus.checks.CheckType;
@@ -70,6 +72,7 @@ public class KeepAliveAdapter extends BaseAdapter {
         final IPlayerData pData = DataManager.getPlayerDataSafe(player);
         if (pData == null) return;
         final NetData data = pData.getGenericInstance(NetData.class);
+        recordKeepAlivePacketDetails(event, data, time);
         data.lastKeepAliveTime = time;
         final NetConfig cc = pData.getGenericInstance(NetConfig.class);
 
@@ -81,6 +84,43 @@ public class KeepAliveAdapter extends BaseAdapter {
             && frequencyCheck.check(player, time, data, cc, pData)) {
             event.setCancelled(true);
         }
+    }
+
+    private void recordKeepAlivePacketDetails(final PacketEvent event, final NetData data, final long time) {
+        final PacketContainer packet = event.getPacket();
+        boolean idAvailable = false;
+        long id = 0L;
+        String idType = "none";
+        int longCount = -1;
+        int intCount = -1;
+        try {
+            final StructureModifier<Long> longs = packet.getLongs();
+            longCount = longs.size();
+            if (longCount > 0) {
+                final Long value = longs.read(0);
+                if (value != null) {
+                    idAvailable = true;
+                    id = value.longValue();
+                    idType = "long";
+                }
+            }
+        }
+        catch (Throwable ignored) {}
+        try {
+            final StructureModifier<Integer> integers = packet.getIntegers();
+            intCount = integers.size();
+            if (!idAvailable && intCount > 0) {
+                final Integer value = integers.read(0);
+                if (value != null) {
+                    idAvailable = true;
+                    id = value.longValue();
+                    idType = "int";
+                }
+            }
+        }
+        catch (Throwable ignored) {}
+        data.recordKeepAlivePacket(time, idAvailable, id, idType, longCount, intCount,
+                event.isAsync(), Thread.currentThread().getName());
     }
 
     @Override

@@ -835,14 +835,14 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
      * Set on {@link org.bukkit.event.player.PlayerRiptideEvent} to "MAYBE", as we don't yet know whether the riptide push is applied with or without the 1.2 vertical move from ground.
      */
     public void setTridentReleaseEvent(AlmostBoolean isReleased) {
-        tridentRelease = isReleased;
+        tridentRelease = isReleased == null ? AlmostBoolean.NO : isReleased;
     }
 
     /**
      * Set when pass to PlayerMoveData, also reset state
      */
     public AlmostBoolean consumeTridentReleaseEvent() {
-        final AlmostBoolean result = tridentRelease;
+        final AlmostBoolean result = tridentRelease == null ? AlmostBoolean.NO : tridentRelease;
         tridentRelease = AlmostBoolean.NO;
         return result;
     }
@@ -1021,6 +1021,10 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
     public List<PairEntry> useHorizontalVelocity(final double x, final double z) {
         final List<PairEntry> available = horVel.use(x, z, 0.001);
         return available;
+    }
+
+    public List<PairEntry> useHorizontalVelocityCovering(final double x, final double z, final int maxActCount) {
+        return horVel.useCovering(x, z, 1, maxActCount, 0.001);
     }
 
 

@@ -19,6 +19,9 @@ import org.bukkit.entity.Player;
 import fr.neatmonster.nocheatplus.checks.Check;
 import fr.neatmonster.nocheatplus.checks.CheckType;
 import fr.neatmonster.nocheatplus.players.IPlayerData;
+import fr.neatmonster.nocheatplus.utilities.CheckUtils;
+import fr.neatmonster.nocheatplus.utilities.StringUtil;
+import fr.neatmonster.nocheatplus.utilities.TickTask;
 
 public class KeepAliveFrequency extends Check {
 
@@ -35,21 +38,82 @@ public class KeepAliveFrequency extends Check {
      * @return If to cancel.
      */
     public boolean check(final Player player, final long time, final NetData data, final NetConfig cc, final IPlayerData pData) {
-        data.keepAliveFreq.add(time, 1f);
-        final float first = data.keepAliveFreq.bucketScore(0);
         final long now = System.currentTimeMillis();
-        
-        if (now > pData.getLastJoinTime() && pData.getLastJoinTime() + cc.keepAliveFrequencyStartupDelay * 1000 < now) {
+        final long joinTime = pData.getLastJoinTime();
+        if (joinTime > 0L && now < joinTime + cc.keepAliveFrequencyStartupDelay) {
             return false;
         }
+        data.keepAliveFreq.add(time, 1f);
+        final float first = data.keepAliveFreq.bucketScore(0);
         
         if (first > 1f) {
             // Trigger a violation.
-            final double vl = Math.max(first - 1f, data.keepAliveFreq.score(1f) - data.keepAliveFreq.numberOfBuckets());
-            if (executeActions(player, vl, 1.0, cc.keepAliveFrequencyActions).willCancel()) {
-                return true;
+            final float fullScore = data.keepAliveFreq.score(1f);
+            if (isBucketBoundaryGrace(data, fullScore, first)) {
+                return false;
             }
+            final double vl = Math.max(first - 1f, fullScore - data.keepAliveFreq.numberOfBuckets());
+            final boolean cancel = executeActions(player, vl, 1.0, cc.keepAliveFrequencyActions).willCancel();
+            if (CheckUtils.shouldLogDebugToConsole()) {
+                logConsoleDetails(player, time, now, joinTime, data, cc, pData, first, fullScore, vl, cancel);
+            }
+            return cancel;
         }
         return false;
+    }
+
+    private boolean isBucketBoundaryGrace(final NetData data, final float fullScore, final float first) {
+        return first <= 2f
+                && data.keepAlivePacketDelta >= 750L
+                && fullScore <= data.keepAliveFreq.numberOfBuckets() + 1f
+                && !data.keepAliveDuplicateId;
+    }
+
+    private void logConsoleDetails(final Player player, final long packetTime, final long now, final long joinTime,
+                                   final NetData data, final NetConfig cc, final IPlayerData pData,
+                                   final float first, final float fullScore, final double vl,
+                                   final boolean cancel) {
+        try {
+            final long bucketDuration = data.keepAliveFreq.bucketDuration();
+            final int buckets = data.keepAliveFreq.numberOfBuckets();
+            player.getServer().getLogger().info(new StringBuilder(900)
+                    .append("[NCP][KeepAliveFrequency][detail] player=").append(player.getName())
+                    .append(" uuid=").append(player.getUniqueId())
+                    .append(" client=").append(pData.getClientVersion())
+                    .append(" packetTime=").append(packetTime)
+                    .append(" now=").append(now)
+                    .append(" joinAge=").append(joinTime <= 0L ? -1L : now - joinTime)
+                    .append(" startupDelay=").append(cc.keepAliveFrequencyStartupDelay)
+                    .append(" vl=").append(StringUtil.fdec3.format(vl))
+                    .append(" cancel=").append(cancel)
+                    .append(" firstBucket=").append(StringUtil.fdec3.format(first))
+                    .append(" fullScore=").append(StringUtil.fdec3.format(fullScore))
+                    .append(" expectedFull=").append(buckets)
+                    .append(" bucketDuration=").append(bucketDuration)
+                    .append(" bucketAge=").append(now - data.keepAliveFreq.lastAccess())
+                    .append(" lastUpdateAge=").append(now - data.keepAliveFreq.lastUpdate())
+                    .append(" lag1s=").append(StringUtil.fdec3.format(TickTask.getLag(bucketDuration, true)))
+                    .append(" lagWindow=").append(StringUtil.fdec3.format(TickTask.getLag(bucketDuration * buckets, true)))
+                    .append(" buckets=").append(formatBuckets(data, Math.min(6, buckets)))
+                    .append(" state=").append(data.describeKeepAliveState(now))
+                    .toString());
+        }
+        catch (Throwable ignored) {}
+    }
+
+    private String formatBuckets(final NetData data, final int limit) {
+        final StringBuilder builder = new StringBuilder(80);
+        builder.append('[');
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(StringUtil.fdec3.format(data.keepAliveFreq.bucketScore(i)));
+        }
+        if (limit < data.keepAliveFreq.numberOfBuckets()) {
+            builder.append(",...");
+        }
+        builder.append(']');
+        return builder.toString();
     }
 }

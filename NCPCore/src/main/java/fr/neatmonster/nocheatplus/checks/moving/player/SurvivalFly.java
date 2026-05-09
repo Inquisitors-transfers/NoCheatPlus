@@ -23,6 +23,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.util.Vector;
 
 import fr.neatmonster.nocheatplus.NCPAPIProvider;
@@ -63,6 +64,7 @@ import fr.neatmonster.nocheatplus.utilities.collision.supportingblock.Supporting
 import fr.neatmonster.nocheatplus.utilities.location.PlayerLocation;
 import fr.neatmonster.nocheatplus.utilities.map.BlockFlags;
 import fr.neatmonster.nocheatplus.utilities.map.BlockProperties;
+import fr.neatmonster.nocheatplus.utilities.map.MaterialUtil;
 import fr.neatmonster.nocheatplus.utilities.math.MathUtil;
 import fr.neatmonster.nocheatplus.utilities.math.TrigUtil;
 import fr.neatmonster.nocheatplus.utilities.moving.Magic;
@@ -80,6 +82,93 @@ public class SurvivalFly extends Check {
     private final ArrayList<String> tags = new ArrayList<>(15);
 
     private static final double BEDROCK_HORIZONTAL_PREDICTION_EPSILON = 0.08D;
+    private static final double BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE = 0.75D;
+    private static final double BEDROCK_GROUNDED_COMBAT_MOVE_GRACE = 0.75D;
+    private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_MOVE_GRACE = 0.45D;
+    private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_OVER_GRACE = 0.45D;
+    private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_VELOCITY_GRACE = 0.45D;
+    private static final double BEDROCK_HALF_STEP_VERTICAL_MOVE = 0.50D;
+    private static final double BEDROCK_HALF_STEP_VERTICAL_EPSILON = 0.015D;
+    private static final double BEDROCK_HALF_STEP_VERTICAL_OVER_GRACE = 0.55D;
+    private static final double BEDROCK_HALF_STEP_HORIZONTAL_OVER_GRACE = 0.25D;
+    private static final double BEDROCK_HALF_STEP_HORIZONTAL_MOVE_GRACE = 0.55D;
+    private static final double BEDROCK_STEP_HORIZONTAL_OVER_GRACE = 0.25D;
+    private static final double BEDROCK_STEP_HORIZONTAL_MOVE_GRACE = 0.60D;
+    private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_OVER_GRACE = 0.55D;
+    private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_MOVE_GRACE = 0.05D;
+    private static final double BEDROCK_STEP_VERTICAL_MODEL_GRACE = 0.02D;
+    private static final double GROUNDED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.35D;
+    private static final double GROUNDED_VERTICAL_VELOCITY_MOVE_GRACE = 0.80D;
+    private static final double GROUNDED_VERTICAL_VELOCITY_MOVE_Y_GRACE = 0.45D;
+    private static final double SERVER_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.50D;
+    private static final double SERVER_VERTICAL_VELOCITY_HORIZONTAL_MOVE_GRACE = 0.65D;
+    private static final double SERVER_VERTICAL_VELOCITY_ASCEND_GRACE = 1.20D;
+    private static final double GROUNDED_ITEM_RESYNC_HORIZONTAL_OVER_GRACE = 0.12D;
+    private static final double GROUNDED_ITEM_RESYNC_MOVE_GRACE = 0.20D;
+    private static final double NEWER_CLIENT_HORIZONTAL_OVER_GRACE = 0.04D;
+    private static final double NEWER_CLIENT_HORIZONTAL_MOVE_GRACE = 0.34D;
+    private static final double GROUNDED_SETBACK_HORIZONTAL_GRACE = 0.10D;
+    private static final double GROUNDED_SETBACK_MOVE_GRACE = 0.13D;
+    private static final double GROUNDED_MICRO_HORIZONTAL_GRACE = 0.01D;
+    private static final double WATER_HORIZONTAL_OVER_GRACE = 0.17D;
+    private static final double WATER_HORIZONTAL_MOVE_GRACE = 0.20D;
+    private static final double WATER_BOB_VERTICAL_GRACE = Magic.LIQUID_SPEED_GAIN + 0.02D;
+    private static final double WATER_BOB_OVER_GRACE = Magic.LIQUID_SPEED_GAIN + 0.035D;
+    private static final double WATER_SETBACK_VERTICAL_GRACE = 0.42D;
+    private static final double WATER_SETBACK_OVER_GRACE = 0.72D;
+    private static final double WATER_DESCEND_GRACE = 0.30D;
+    private static final double WATER_DESCEND_OVER_GRACE = 0.12D;
+    private static final double WATER_RESET_OVER_GRACE = 0.20D;
+    private static final double CLIMBABLE_HORIZONTAL_OVER_GRACE = 0.03D;
+    private static final double CLIMBABLE_HORIZONTAL_MOVE_GRACE = 0.13D;
+    private static final double CLIMBABLE_ASCEND_GRACE = 0.22D;
+    private static final double CLIMBABLE_DESCEND_GRACE = 0.30D;
+    private static final double CLIMBABLE_DESCEND_OVER_GRACE = 0.30D;
+    private static final double CLIMBABLE_VERTICAL_PRECISION_GRACE = 0.005D;
+    private static final double LEVITATION_STALL_VERTICAL_GRACE = 0.12D;
+    private static final double LEVITATION_STALL_OVER_GRACE = 0.12D;
+    private static final double LEVITATION_HORIZONTAL_OVER_GRACE = 0.08D;
+    private static final double GLIDING_VERTICAL_PRECISION_GRACE = 0.005D;
+    private static final double GLIDING_HORIZONTAL_PRECISION_GRACE = 0.04D;
+    private static final double GLIDING_VELOCITY_VERTICAL_OVER_GRACE = 0.70D;
+    private static final double GLIDING_VELOCITY_HORIZONTAL_OVER_GRACE = 0.04D;
+    private static final double GLIDING_VELOCITY_MIN_HORIZONTAL_MOVE = 0.75D;
+    private static final double GLIDING_VELOCITY_MAX_VERTICAL_MOVE = 0.75D;
+    private static final double GLIDING_STALL_VERTICAL_OVER_GRACE = 0.18D;
+    private static final double GLIDING_STALL_HORIZONTAL_OVER_GRACE = 0.04D;
+    private static final double GLIDING_STALL_VERTICAL_MOVE_GRACE = 0.18D;
+    private static final double GLIDING_STALL_HORIZONTAL_MOVE_GRACE = 0.20D;
+    private static final double GLIDING_CURRENT_VELOCITY_VERTICAL_OVER_GRACE = 1.00D;
+    private static final double GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE = 0.20D;
+    private static final double GLIDING_CURRENT_VELOCITY_BETTER_MODEL_GRACE = 0.08D;
+    private static final double GLIDING_CURRENT_VELOCITY_VERTICAL_MODEL_DIFF_GRACE = 0.45D;
+    private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_MODEL_DIFF_GRACE = 0.45D;
+    private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_AMOUNT_GRACE = 0.35D;
+    private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE = 0.12D;
+    private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_MOVE_GRACE = 0.45D;
+    private static final double GLIDING_FIREWORK_VERTICAL_OVER_GRACE = 0.90D;
+    private static final double GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE = 0.15D;
+    private static final double GLIDING_FIREWORK_MOVE_GRACE = 2.25D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE = 0.45D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE = 0.12D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.12D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE = 0.75D;
+    private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE = 0.43D;
+    private static final double ELYTRA_LIFTOFF_VERTICAL_OVER_GRACE = 0.095D;
+    private static final double ELYTRA_LIFTOFF_MAX_ASCEND = 0.44D;
+    private static final double ELYTRA_LIFTOFF_LAST_Y_GRACE = 0.02D;
+    private static final double ELYTRA_LIFTOFF_HORIZONTAL_OVER_GRACE = 0.04D;
+    private static final double ELYTRA_LIFTOFF_HORIZONTAL_MOVE_GRACE = 0.60D;
+    private static final double ELYTRA_GEOMETRY_STALL_VERTICAL_OVER_GRACE = LiftOffEnvelope.NORMAL.getJumpGain(0.0) + Magic.PREDICTION_EPSILON;
+    private static final double ELYTRA_GEOMETRY_STALL_MAX_VERTICAL_MOVE = 0.05D;
+    private static final double ELYTRA_GEOMETRY_STALL_LAST_ASCEND = 0.40D;
+    private static final double ELYTRA_GEOMETRY_STALL_HORIZONTAL_OVER_GRACE = 0.15D;
+    private static final double ELYTRA_GEOMETRY_STALL_HORIZONTAL_MOVE_GRACE = 0.30D;
+    private static final double SETBACK_GRAVITY_VERTICAL_GRACE = 0.18D;
+    private static final double SETBACK_GRAVITY_OVER_GRACE = 0.18D;
+    private static final double SETBACK_GRAVITY_SETBACK_Y_GRACE = 0.04D;
+    private static final double CURRENT_VELOCITY_PERPENDICULAR_GRACE = 0.05D;
+    private static final double CURRENT_VELOCITY_AMOUNT_GRACE = 0.04D;
     
     private final ArrayList<String> justUsedWorkarounds = new ArrayList<>();
     
@@ -198,6 +287,7 @@ public class SurvivalFly extends Check {
             hFreedom = 0.0;
         }
         hDistanceAboveLimit = applyBedrockHorizontalPredictionLeniency(player, pData, hDistanceAboveLimit);
+        hDistanceAboveLimit = applyNewerClientHorizontalPredictionLeniency(pData, thisMove, hDistanceAboveLimit);
 
 
         /////////////////////////////////////
@@ -215,6 +305,15 @@ public class SurvivalFly extends Check {
             yAllowedDistance = res[0];
             yDistanceAboveLimit = res[1];
         }
+        hDistanceAboveLimit = applyGroundedRecoveryHorizontalLeniency(from, to, thisMove, lastMove,
+                hDistanceAboveLimit, fromOnGround, resetFrom, toOnGround, resetTo);
+        hDistanceAboveLimit = applyEnvironmentalHorizontalLeniency(player, pData, data, from, to, thisMove, lastMove, hDistanceAboveLimit);
+        hAllowedDistance = thisMove.hAllowedDistance;
+        yDistanceAboveLimit = applyEnvironmentalVerticalLeniency(player, pData, data, from, to, thisMove, lastMove,
+                yDistanceAboveLimit, hDistanceAboveLimit, resetFrom, resetTo);
+        yDistanceAboveLimit = applySetbackGravityVerticalLeniency(data, from, to, thisMove, lastMove,
+                yDistanceAboveLimit, hDistanceAboveLimit, resetFrom, resetTo);
+        yAllowedDistance = thisMove.yAllowedDistance;
 
 
         ////////////////////////////
@@ -236,9 +335,17 @@ public class SurvivalFly extends Check {
         final double result = (Math.max(hDistanceAboveLimit, 0.0) + Math.max(yDistanceAboveLimit, 0.0)) * 100D;
         if (result > 0.0) {
             final Location vLoc = handleViolation(result, player, from, to, data, cc);
-            logConsoleDetails(result, player, from, to, data, pData, thisMove, lastMove, hAllowedDistance,
-                    hDistanceAboveLimit, hFreedom, yAllowedDistance, yDistanceAboveLimit, fromOnGround, resetFrom,
-                    toOnGround, resetTo, tick, now, multiMoveCount, isNormalOrPacketSplitMove);
+            if (CheckUtils.shouldLogDebugToConsole()) {
+                try {
+                    logConsoleDetails(result, player, from, to, vLoc, data, cc, pData, thisMove, lastMove, hAllowedDistance,
+                            hDistanceAboveLimit, hFreedom, yAllowedDistance, yDistanceAboveLimit, fromOnGround, resetFrom,
+                            toOnGround, resetTo, tick, now, multiMoveCount, isNormalOrPacketSplitMove);
+                }
+                catch (Throwable t) {
+                    player.getServer().getLogger().info("[NCP][SurvivalFly][detail] diagnostic logging failed for player="
+                            + player.getName() + " reason=" + t.getClass().getSimpleName());
+                }
+            }
             if (inAir) {
                 data.sfVLInAir = true;
             }
@@ -294,7 +401,7 @@ public class SurvivalFly extends Check {
         }
 
         // Apply reset conditions.
-        if (resetTo) {
+        if (resetTo || isBedrockLanternCollisionMove(player, pData, from, to, thisMove)) {
             // Reset data.
             data.setSetBack(to);
             data.sfJumpPhase = 0;
@@ -469,6 +576,10 @@ public class SurvivalFly extends Check {
             // No Gliding, no deal
             return new double[] {thisMove.hDistance, 0.0, thisMove.yDistance, 0.0};
         }
+        addTag(data.fireworksBoostDuration > 0 ? "mode_elytra_firework" : "mode_elytra_gliding");
+        if (data.fireworksBoostDuration > 0) {
+            addTag("glide_firework_active");
+        }
         // Note: WASD key presses, as well as sneaking and item-use are irrelevant when gliding.
         // Initialize speed.
         thisMove.xAllowedDistance = lastMove.toIsValid ? lastMove.xDistance : 0.0;
@@ -501,6 +612,7 @@ public class SurvivalFly extends Check {
         // TODO: Reduce verbosity (at least, make it easier to look at)
         Vector viewVector = TrigUtil.getLookingDirection(to, player);
         float radianPitch = to.getPitch() * TrigUtil.toRadians;
+        final ClientVersion clientVersion = getMovementClientVersion(pData);
         // Horizontal length of the look direction
         double viewVecHorizontalLength = MathUtil.dist(viewVector.getX(), viewVector.getZ());
         // Horizontal length of the movement
@@ -508,7 +620,7 @@ public class SurvivalFly extends Check {
         // Overall length of the look direction.
         double viewVectorLength = viewVector.length();
         // Mojang switched from their own cosine function to the standard Math.cos() one in 1.18.2
-        double cosPitch = pData.getClientVersion().isAtMost(ClientVersion.V_1_18_2) ? TrigUtil.cos((double)radianPitch) : Math.cos((double)radianPitch);
+        double cosPitch = clientVersion.isAtMost(ClientVersion.V_1_18_2) ? TrigUtil.cos((double)radianPitch) : Math.cos((double)radianPitch);
         cosPitch = cosPitch * cosPitch * Math.min(1.0, viewVectorLength / 0.4);
         // Base gravity when gliding.
         thisMove.yAllowedDistance += (cData.wasSlowFalling && lastMove.yDistance <= 0.0 ? Magic.SLOW_FALL_GRAVITY : Magic.DEFAULT_GRAVITY) * (-1.0 + cosPitch * 0.75);
@@ -575,11 +687,16 @@ public class SurvivalFly extends Check {
         if (Math.abs(offsetV) < Magic.PREDICTION_EPSILON) {
             // Accuracy margin.
         }
+        else if (currentGlidingVerticalVelocityMatches(player, thisMove, thisMove.yAllowedDistance, Math.abs(offsetV))) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            addTag("glide_current_velocity_vertical_grace");
+        }
         else {
             // If velocity can be used for compensation, use it.
             if (data.getOrUseVerticalVelocity(thisMove.yDistance).isEmpty()) {
                 yDistanceAboveLimit = Math.max(yDistanceAboveLimit, Math.abs(offsetV));
-                tags.add("vdistrel");
+                addGlidingVerticalPredictionTags(offsetV);
+                addTag("vdistrel");
             }
         }
 
@@ -588,10 +705,27 @@ public class SurvivalFly extends Check {
         if (offsetH < Magic.PREDICTION_EPSILON) {
             // Accuracy margin.
         }
+        else if (currentGlidingHorizontalVelocityCovers(player, thisMove,
+                thisMove.xAllowedDistance, thisMove.zAllowedDistance,
+                thisMove.xDistance - thisMove.xAllowedDistance,
+                thisMove.zDistance - thisMove.zAllowedDistance)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            addTag("glide_current_velocity_horizontal_grace");
+        }
+        else if (offsetH <= GLIDING_HORIZONTAL_PRECISION_GRACE) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            addTag("glide_horizontal_precision_grace");
+        }
         else {
             hDistanceAboveLimit = Math.max(hDistanceAboveLimit, offsetH);
-            tags.add("hdistrel");
+            addGlidingHorizontalPredictionTags(offsetH);
+            addTag("hdistrel");
         }
+        addGlidingLookAndFireworkTags(data, to, thisMove, offsetV, offsetH);
         if (debug) {
             player.sendMessage(ChatColor.RED + "[SurvivalFly] vdistrel: predict=" + StringUtil.fdec6.format(thisMove.yAllowedDistance) + ", actual=" + StringUtil.fdec6.format(thisMove.yDistance) + ", offset=" + StringUtil.fdec6.format(offsetV));
             player.sendMessage(ChatColor.YELLOW + "[SurvivalFly] hdistrel: predict=" + StringUtil.fdec6.format(thisMove.hAllowedDistance) + ", actual=" + StringUtil.fdec6.format(thisMove.hDistance) + ", offset=" + StringUtil.fdec6.format(offsetH));
@@ -622,7 +756,8 @@ public class SurvivalFly extends Check {
      * @param thisMove
      */
     private void checkNegligibleMomentum(IPlayerData pData, PlayerMoveData thisMove) {
-        if (pData.getClientVersion().isAtLeast(ClientVersion.V_1_21_5)) {
+        final ClientVersion clientVersion = getMovementClientVersion(pData);
+        if (clientVersion.isAtLeast(ClientVersion.V_1_21_5)) {
             // This condition was added on 1.21.5. If the horizontal distance squared is below 0.000009 and the entity is a player, both horizontal momenta are set to 0.0.
             // This means that both x/z momenta can be reset even if one of them is above the threshold, as long as the overall horizontal momentum is below the threshold.
             // EntityLiving.java -> aiStep
@@ -632,7 +767,7 @@ public class SurvivalFly extends Check {
                 thisMove.zAllowedDistance = 0.0;
             }
         }
-        else if (pData.getClientVersion().isAtLeast(ClientVersion.V_1_9)) {
+        else if (clientVersion.isAtLeast(ClientVersion.V_1_9)) {
             if (Math.abs(thisMove.xAllowedDistance) < Magic.NEGLIGIBLE_SPEED_THRESHOLD) {
                 thisMove.xAllowedDistance = 0.0;
             }
@@ -659,7 +794,7 @@ public class SurvivalFly extends Check {
      * @param thisMove
      */
     private void checkNegligibleMomentumVertical(IPlayerData pData, PlayerMoveData thisMove) {
-        if (Math.abs(thisMove.yAllowedDistance) < (pData.getClientVersion().isAtLeast(ClientVersion.V_1_9) ? Magic.NEGLIGIBLE_SPEED_THRESHOLD : Magic.NEGLIGIBLE_SPEED_THRESHOLD_LEGACY)) {
+        if (Math.abs(thisMove.yAllowedDistance) < (getMovementClientVersion(pData).isAtLeast(ClientVersion.V_1_9) ? Magic.NEGLIGIBLE_SPEED_THRESHOLD : Magic.NEGLIGIBLE_SPEED_THRESHOLD_LEGACY)) {
             thisMove.yAllowedDistance = 0.0;
         }
     }
@@ -678,6 +813,7 @@ public class SurvivalFly extends Check {
                                             final boolean fromOnGround, final boolean toOnGround, final boolean debug,
                                             final boolean isNormalOrPacketSplitMove, boolean forceSetOnGround, boolean forceSetOffGround) {
         double hDistanceAboveLimit;
+        final ClientVersion clientVersion = getMovementClientVersion(pData);
         //////////////////////////
         // Early return(s)      //
         //////////////////////////
@@ -710,9 +846,9 @@ public class SurvivalFly extends Check {
             }
             if (StriderLevel > 0.0) {
                 // (Less speed conservation (or in other words, more friction))
-                data.nextInertia += (0.54600006f - data.nextInertia) * StriderLevel / (pData.getClientVersion().isAtMost(ClientVersion.V_1_20_6) ? 3.0f : 1.0f); // Mojang removed this / by 3 in 1.21 and switched to the WATER_MOVEMENT_EFFICIENCY attribute
+                data.nextInertia += (0.54600006f - data.nextInertia) * StriderLevel / (clientVersion.isAtMost(ClientVersion.V_1_20_6) ? 3.0f : 1.0f); // Mojang removed this / by 3 in 1.21 and switched to the WATER_MOVEMENT_EFFICIENCY attribute
                 // (More per-tick speed gain)
-                acceleration += (data.walkSpeed - acceleration) * StriderLevel / (pData.getClientVersion().isAtMost(ClientVersion.V_1_20_6) ? 3.0f : 1.0f);
+                acceleration += (data.walkSpeed - acceleration) * StriderLevel / (clientVersion.isAtMost(ClientVersion.V_1_20_6) ? 3.0f : 1.0f);
             }
             if (!Double.isInfinite(Bridge1_13.getDolphinGraceAmplifier(player))) {
                 // (Much more speed conservation (or in other words, much less friction))
@@ -729,8 +865,8 @@ public class SurvivalFly extends Check {
         else {
             data.nextInertia = onGround ? data.nextFrictionHorizontal * Magic.AIR_HORIZONTAL_INERTIA : Magic.AIR_HORIZONTAL_INERTIA;
             // 1.12 (and below) clients will use cubed inertia, not cubed friction here. The difference isn't significant except for blocking speed and bunnyhopping on soul sand, which are both slower on 1.8
-            float frictionMediumFactor = pData.getClientVersion().isAtLeast(ClientVersion.V_1_13) ? data.nextFrictionHorizontal : data.nextFrictionHorizontal * Magic.AIR_HORIZONTAL_INERTIA;
-            float acceleration = onGround ? data.walkSpeed * ((pData.getClientVersion().isAtLeast(ClientVersion.V_1_13) ? Magic.DEFAULT_FRICTION_CUBED : Magic.DEFAULT_FRICTION_MULTIPLIED_BY_091_CUBED) / (frictionMediumFactor * frictionMediumFactor * frictionMediumFactor)) : Magic.AIR_ACCELERATION;
+            float frictionMediumFactor = clientVersion.isAtLeast(ClientVersion.V_1_13) ? data.nextFrictionHorizontal : data.nextFrictionHorizontal * Magic.AIR_HORIZONTAL_INERTIA;
+            float acceleration = onGround ? data.walkSpeed * ((clientVersion.isAtLeast(ClientVersion.V_1_13) ? Magic.DEFAULT_FRICTION_CUBED : Magic.DEFAULT_FRICTION_MULTIPLIED_BY_091_CUBED) / (frictionMediumFactor * frictionMediumFactor * frictionMediumFactor)) : Magic.AIR_ACCELERATION;
             if (pData.isSprinting()) {
                 // (We don't use the attribute here due to desync issues, just detect when the player is sprinting and apply the multiplier manually)
                 acceleration += acceleration * 0.3f; // 0.3 is the effective sprinting speed (EntityLiving).
@@ -760,6 +896,11 @@ public class SurvivalFly extends Check {
         return new double[]{thisMove.hAllowedDistance, hDistanceAboveLimit};
     }
 
+    private ClientVersion getMovementClientVersion(final IPlayerData pData) {
+        final ClientVersion clientVersion = pData.getClientVersion();
+        return clientVersion == ClientVersion.UNKNOWN ? ClientVersion.getLatest() : clientVersion;
+    }
+
     private double applyBedrockHorizontalPredictionLeniency(final Player player, final IPlayerData pData, final double hDistanceAboveLimit) {
         if (hDistanceAboveLimit > 0.0 && isBedrockPlayer(player, pData) && hDistanceAboveLimit <= BEDROCK_HORIZONTAL_PREDICTION_EPSILON) {
             tags.add("bedrock_hdistrel");
@@ -768,12 +909,654 @@ public class SurvivalFly extends Check {
         return hDistanceAboveLimit;
     }
 
+    private double applyNewerClientHorizontalPredictionLeniency(final IPlayerData pData,
+                                                               final PlayerMoveData thisMove,
+                                                               final double hDistanceAboveLimit) {
+        if (hDistanceAboveLimit > 0.0
+                && pData.getClientVersion() == ClientVersion.HIGHER_THAN_KNOWN_VERSIONS
+                && hDistanceAboveLimit <= NEWER_CLIENT_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= NEWER_CLIENT_HORIZONTAL_MOVE_GRACE) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("newer_client_hdistrel");
+            return 0.0;
+        }
+        return hDistanceAboveLimit;
+    }
+
+    private double applyGroundedRecoveryHorizontalLeniency(final PlayerLocation from, final PlayerLocation to,
+                                                          final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                          final double hDistanceAboveLimit,
+                                                          final boolean fromOnGround, final boolean resetFrom,
+                                                          final boolean toOnGround, final boolean resetTo) {
+        if (hDistanceAboveLimit <= 0.0 || !isGroundedRecoveryMove(from, to, thisMove, lastMove,
+                hDistanceAboveLimit, fromOnGround, resetFrom, toOnGround, resetTo)) {
+            return hDistanceAboveLimit;
+        }
+        thisMove.xAllowedDistance = thisMove.xDistance;
+        thisMove.zAllowedDistance = thisMove.zDistance;
+        thisMove.hAllowedDistance = thisMove.hDistance;
+        tags.add("ground_recovery_grace");
+        return 0.0;
+    }
+
+    private boolean isGroundedRecoveryMove(final PlayerLocation from, final PlayerLocation to,
+                                           final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                           final double hDistanceAboveLimit,
+                                           final boolean fromOnGround, final boolean resetFrom,
+                                           final boolean toOnGround, final boolean resetTo) {
+        if (!tags.contains("onground_env")
+                || Math.abs(thisMove.yDistance) > Magic.PREDICTION_EPSILON
+                || !(fromOnGround || resetFrom || thisMove.from.onGroundOrResetCond)
+                || !(toOnGround || resetTo || thisMove.to.onGroundOrResetCond)
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid
+                || thisMove.hDistance > GROUNDED_SETBACK_MOVE_GRACE
+                || hDistanceAboveLimit > GROUNDED_SETBACK_HORIZONTAL_GRACE) {
+            return false;
+        }
+        return !lastMove.toIsValid || thisMove.multiMoveCount > 0
+                || hDistanceAboveLimit <= GROUNDED_SETBACK_HORIZONTAL_GRACE
+                || hDistanceAboveLimit <= GROUNDED_MICRO_HORIZONTAL_GRACE;
+    }
+
+    private double applyEnvironmentalHorizontalLeniency(final Player player, final IPlayerData pData, final MovingData data,
+                                                       final PlayerLocation from, final PlayerLocation to,
+                                                       final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                       final double hDistanceAboveLimit) {
+        if (hDistanceAboveLimit <= 0.0) {
+            return hDistanceAboveLimit;
+        }
+        if (isElytraGeometryStallHorizontalGrace(player, thisMove, lastMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("elytra_geometry_horizontal_grace");
+            return 0.0;
+        }
+        if (isBedrockGroundedCombatHorizontalGrace(player, pData, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("bedrock_grounded_combat_grace");
+            return 0.0;
+        }
+        if (isBedrockStepHorizontalGrace(player, pData, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("bedrock_step_horizontal_grace");
+            return 0.0;
+        }
+        if (isGroundedVerticalVelocityHorizontalGrace(player, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("grounded_vertical_velocity_horizontal_grace");
+            return 0.0;
+        }
+        if (isServerVerticalVelocityHorizontalGrace(player, data, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("server_vertical_velocity_horizontal_grace");
+            return 0.0;
+        }
+        if (isGroundedItemResyncHorizontalGrace(thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("grounded_itemresync_horizontal_grace");
+            return 0.0;
+        }
+        if (isWaterHorizontalGrace(from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("water_horizontal_grace");
+            return 0.0;
+        }
+        if (isClimbableHorizontalGrace(from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("climbable_horizontal_grace");
+            return 0.0;
+        }
+        return hDistanceAboveLimit;
+    }
+
+    private boolean isBedrockGroundedCombatHorizontalGrace(final Player player, final IPlayerData pData,
+                                                           final PlayerLocation from, final PlayerLocation to,
+                                                           final PlayerMoveData thisMove,
+                                                           final double hDistanceAboveLimit) {
+        if (!isBedrockPlayer(player, pData)
+                || Bridge1_9.isGliding(player)
+                || hDistanceAboveLimit > BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE
+                || thisMove.hDistance > BEDROCK_GROUNDED_COMBAT_MOVE_GRACE
+                || Math.abs(thisMove.yDistance) > BEDROCK_GROUNDED_COMBAT_VERTICAL_MOVE_GRACE
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        return isGroundedCombatMove(player, from, to, thisMove);
+    }
+
+    private boolean isGroundedCombatMove(final Player player, final PlayerLocation from, final PlayerLocation to,
+                                         final PlayerMoveData thisMove) {
+        final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+        if (!groundish) {
+            return false;
+        }
+        final double velocityY = Math.abs(player.getVelocity().getY());
+        return !thisMove.hasImpulse.decideOptimistically()
+                || thisMove.hasAttackSlowDown
+                || velocityY > Magic.PREDICTION_EPSILON
+                        && velocityY <= BEDROCK_GROUNDED_COMBAT_VERTICAL_VELOCITY_GRACE;
+    }
+
+    private boolean isGroundedVerticalVelocityHorizontalGrace(final Player player,
+                                                             final PlayerLocation from, final PlayerLocation to,
+                                                             final PlayerMoveData thisMove,
+                                                             final double hDistanceAboveLimit) {
+        if (Bridge1_9.isGliding(player)
+                || hDistanceAboveLimit > GROUNDED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE
+                || thisMove.hDistance > GROUNDED_VERTICAL_VELOCITY_MOVE_GRACE
+                || Math.abs(thisMove.yDistance) > GROUNDED_VERTICAL_VELOCITY_MOVE_Y_GRACE
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+        final double velocityY = player.getVelocity().getY();
+        return groundish
+                && velocityY > 0.30D && velocityY <= GROUNDED_VERTICAL_VELOCITY_MOVE_Y_GRACE
+                && (thisMove.collidesHorizontally || thisMove.collideY || tags.contains("v_air"));
+    }
+
+    private boolean isBedrockStepHorizontalGrace(final Player player, final IPlayerData pData,
+                                                 final PlayerLocation from, final PlayerLocation to,
+                                                 final PlayerMoveData thisMove,
+                                                 final double hDistanceAboveLimit) {
+        if (!isBedrockPlayer(player, pData)
+                || Bridge1_9.isGliding(player)
+                || hDistanceAboveLimit > BEDROCK_STEP_HORIZONTAL_OVER_GRACE
+                || thisMove.hDistance > BEDROCK_STEP_HORIZONTAL_MOVE_GRACE
+                || Math.abs(thisMove.yDistance - BEDROCK_HALF_STEP_VERTICAL_MOVE) > BEDROCK_HALF_STEP_VERTICAL_EPSILON
+                || !isGroundishStepMove(from, to, thisMove)
+                || !isStepBlockNear(from, to)) {
+            return false;
+        }
+        return !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isServerVerticalVelocityHorizontalGrace(final Player player, final MovingData data,
+                                                            final PlayerLocation from, final PlayerLocation to,
+                                                            final PlayerMoveData thisMove,
+                                                            final double hDistanceAboveLimit) {
+        if (thisMove.verVelUsed.isEmpty()
+                || !data.getHorizontalVelocityTracker().hasQueued()
+                || hDistanceAboveLimit > SERVER_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE
+                || thisMove.hDistance > SERVER_VERTICAL_VELOCITY_HORIZONTAL_MOVE_GRACE
+                || thisMove.yDistance <= 0.0D
+                || thisMove.yDistance > SERVER_VERTICAL_VELOCITY_ASCEND_GRACE
+                || Bridge1_9.isGliding(player)) {
+            return false;
+        }
+        final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+        return groundish
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isGroundedItemResyncHorizontalGrace(final PlayerMoveData thisMove,
+                                                        final double hDistanceAboveLimit) {
+        return tags.contains("itemresync")
+                && tags.contains("usingitem")
+                && tags.contains("onground_env")
+                && Math.abs(thisMove.yDistance) <= Magic.PREDICTION_EPSILON
+                && hDistanceAboveLimit <= GROUNDED_ITEM_RESYNC_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= GROUNDED_ITEM_RESYNC_MOVE_GRACE;
+    }
+
+    private boolean isWaterHorizontalGrace(final PlayerLocation from, final PlayerLocation to,
+                                           final PlayerMoveData thisMove,
+                                           final double hDistanceAboveLimit) {
+        final boolean inWater = from.isInWater() || to.isInWater()
+                || thisMove.from.inWater || thisMove.to.inWater;
+        return inWater
+                && hDistanceAboveLimit <= WATER_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= WATER_HORIZONTAL_MOVE_GRACE;
+    }
+
+    private boolean isClimbableHorizontalGrace(final PlayerLocation from, final PlayerLocation to,
+                                               final PlayerMoveData thisMove,
+                                               final double hDistanceAboveLimit) {
+        final boolean climbable = from.isOnClimbable() || to.isOnClimbable()
+                || thisMove.from.onClimbable || thisMove.to.onClimbable;
+        return climbable
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid
+                && hDistanceAboveLimit <= CLIMBABLE_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= CLIMBABLE_HORIZONTAL_MOVE_GRACE
+                && thisMove.yDistance >= -CLIMBABLE_DESCEND_GRACE
+                && thisMove.yDistance <= CLIMBABLE_ASCEND_GRACE;
+    }
+
+    private boolean isElytraGeometryStallHorizontalGrace(final Player player,
+                                                         final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                         final double hDistanceAboveLimit) {
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && lastMove.toIsValid
+                && lastMove.yDistance >= ELYTRA_GEOMETRY_STALL_LAST_ASCEND
+                && Math.abs(thisMove.yDistance) <= ELYTRA_GEOMETRY_STALL_MAX_VERTICAL_MOVE
+                && hDistanceAboveLimit <= ELYTRA_GEOMETRY_STALL_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_GEOMETRY_STALL_HORIZONTAL_MOVE_GRACE;
+    }
+
+    private double applyEnvironmentalVerticalLeniency(final Player player, final IPlayerData pData, final MovingData data,
+                                                     final PlayerLocation from, final PlayerLocation to,
+                                                     final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                     final double yDistanceAboveLimit,
+                                                     final double hDistanceAboveLimit,
+                                                     final boolean resetFrom, final boolean resetTo) {
+        if (yDistanceAboveLimit <= 0.0) {
+            return yDistanceAboveLimit;
+        }
+        if (isClimbableVerticalGrace(from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("climbable_vertical_grace");
+            return 0.0;
+        }
+        if (isWaterVerticalGrace(from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit, resetFrom, resetTo)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("water_vertical_grace");
+            return 0.0;
+        }
+        if (isLevitationVerticalGrace(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("levitation_vertical_grace");
+            return 0.0;
+        }
+        if (isBedrockGroundedCombatVerticalGrace(player, pData, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("bedrock_grounded_combat_vertical_grace");
+            return 0.0;
+        }
+        if (isBedrockHalfStepVerticalGrace(player, pData, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("bedrock_half_step_vertical_grace");
+            return 0.0;
+        }
+        if (isBedrockStepVerticalUndershootGrace(player, pData, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("bedrock_step_vertical_undershoot_grace");
+            return 0.0;
+        }
+        if (isElytraEquippedVerticalVelocityGrace(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("elytra_equipped_vertical_velocity_grace");
+            return 0.0;
+        }
+        if (isGlidingFireworkVerticalGrace(player, data, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("glide_firework_vertical_grace");
+            return 0.0;
+        }
+        if (isGlidingVerticalPrecisionGrace(player, yDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("glide_vertical_grace");
+            return 0.0;
+        }
+        if (isGlidingStallVerticalGrace(player, data, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("glide_stall_vertical_grace");
+            return 0.0;
+        }
+        if (isGlidingVelocityVerticalGrace(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("glide_velocity_vertical_grace");
+            return 0.0;
+        }
+        if (isElytraLiftOffVerticalGrace(player, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("elytra_liftoff_grace");
+            return 0.0;
+        }
+        if (isElytraGeometryStallVerticalGrace(player, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("elytra_geometry_stall_grace");
+            return 0.0;
+        }
+        return yDistanceAboveLimit;
+    }
+
+    private double applySetbackGravityVerticalLeniency(final MovingData data,
+                                                      final PlayerLocation from, final PlayerLocation to,
+                                                      final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                      final double yDistanceAboveLimit,
+                                                      final double hDistanceAboveLimit,
+                                                      final boolean resetFrom, final boolean resetTo) {
+        if (yDistanceAboveLimit <= 0.0 || !isSetbackGravityRecoveryMove(data, from, to, thisMove, lastMove,
+                yDistanceAboveLimit, hDistanceAboveLimit, resetFrom, resetTo)) {
+            return yDistanceAboveLimit;
+        }
+        thisMove.yAllowedDistance = thisMove.yDistance;
+        tags.add("setback_gravity_grace");
+        return 0.0;
+    }
+
+    private boolean isSetbackGravityRecoveryMove(final MovingData data,
+                                                 final PlayerLocation from, final PlayerLocation to,
+                                                 final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                 final double yDistanceAboveLimit,
+                                                 final double hDistanceAboveLimit,
+                                                 final boolean resetFrom, final boolean resetTo) {
+        return data.hasSetBack()
+                && data.timeSinceSetBack <= 5
+                && (!lastMove.toIsValid || thisMove.multiMoveCount == 0)
+                && hDistanceAboveLimit <= GROUNDED_MICRO_HORIZONTAL_GRACE
+                && thisMove.hDistance <= Magic.NEGLIGIBLE_SPEED_THRESHOLD
+                && thisMove.yDistance < -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance >= -SETBACK_GRAVITY_VERTICAL_GRACE
+                && yDistanceAboveLimit <= SETBACK_GRAVITY_OVER_GRACE
+                && !resetFrom && !resetTo
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid
+                && Math.abs(from.getY() - data.getSetBackY()) <= SETBACK_GRAVITY_SETBACK_Y_GRACE;
+    }
+
+    private boolean isLevitationVerticalGrace(final Player player,
+                                              final PlayerMoveData thisMove,
+                                              final double yDistanceAboveLimit,
+                                              final double hDistanceAboveLimit) {
+        return !Double.isInfinite(Bridge1_9.getLevitationAmplifier(player))
+                && hDistanceAboveLimit <= LEVITATION_HORIZONTAL_OVER_GRACE
+                && Math.abs(thisMove.yDistance) <= LEVITATION_STALL_VERTICAL_GRACE
+                && yDistanceAboveLimit <= LEVITATION_STALL_OVER_GRACE;
+    }
+
+    private boolean isGlidingVerticalPrecisionGrace(final Player player,
+                                                    final double yDistanceAboveLimit) {
+        return Bridge1_9.isGliding(player)
+                && yDistanceAboveLimit <= GLIDING_VERTICAL_PRECISION_GRACE;
+    }
+
+    private boolean isGlidingVelocityVerticalGrace(final Player player,
+                                                   final PlayerMoveData thisMove,
+                                                   final double yDistanceAboveLimit,
+                                                   final double hDistanceAboveLimit) {
+        return Bridge1_9.isGliding(player)
+                && yDistanceAboveLimit <= GLIDING_VELOCITY_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= GLIDING_VELOCITY_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance >= GLIDING_VELOCITY_MIN_HORIZONTAL_MOVE
+                && Math.abs(thisMove.yDistance) <= GLIDING_VELOCITY_MAX_VERTICAL_MOVE
+                && (tags.contains("hvel_current") || tags.contains("hvel"));
+    }
+
+    private boolean isGlidingFireworkVerticalGrace(final Player player, final MovingData data,
+                                                   final PlayerMoveData thisMove,
+                                                   final double yDistanceAboveLimit,
+                                                   final double hDistanceAboveLimit) {
+        if (!Bridge1_9.isGliding(player)
+                || data.fireworksBoostDuration <= 0
+                || yDistanceAboveLimit > GLIDING_FIREWORK_VERTICAL_OVER_GRACE
+                || hDistanceAboveLimit > GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE
+                || !tags.contains("glide_firework_active")
+                || !tags.contains("glide_vertical_prediction_miss")) {
+            return false;
+        }
+        final boolean verticalModelMiss = tags.contains("glide_firework_vertical_model_high")
+                || tags.contains("glide_firework_vertical_model_low");
+        final boolean saneMoveSize = thisMove.hDistance <= GLIDING_FIREWORK_MOVE_GRACE
+                || thisMove.hDistance <= Magic.NEGLIGIBLE_SPEED_THRESHOLD;
+        return verticalModelMiss && saneMoveSize;
+    }
+
+    private boolean isElytraEquippedVerticalVelocityGrace(final Player player,
+                                                          final PlayerLocation from, final PlayerLocation to,
+                                                          final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                          final double yDistanceAboveLimit,
+                                                          final double hDistanceAboveLimit) {
+        if (!Bridge1_9.isWearingElytra(player)
+                || Bridge1_9.isGliding(player)
+                || thisMove.yDistance <= 0.0D
+                || thisMove.yDistance > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE
+                || thisMove.hDistance > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE
+                || hDistanceAboveLimit > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE
+                || yDistanceAboveLimit > ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        final double velocityY = player.getVelocity().getY();
+        final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+        final boolean currentVelocity = velocityY > 0.20D
+                && velocityY <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE + 0.02D
+                && Math.abs(thisMove.yDistance - velocityY) <= 0.08D;
+        final boolean followUp = lastMove.toIsValid
+                && lastMove.yDistance > 0.30D
+                && lastMove.yDistance <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE
+                && yDistanceAboveLimit <= ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE
+                && (tags.contains("hvel_current") || tags.contains("hvel") || velocityY > 0.20D);
+        return groundish && (currentVelocity || followUp);
+    }
+
+    private boolean isBedrockGroundedCombatVerticalGrace(final Player player, final IPlayerData pData,
+                                                         final PlayerLocation from, final PlayerLocation to,
+                                                         final PlayerMoveData thisMove,
+                                                         final double yDistanceAboveLimit,
+                                                         final double hDistanceAboveLimit) {
+        return isBedrockPlayer(player, pData)
+                && !Bridge1_9.isGliding(player)
+                && yDistanceAboveLimit <= BEDROCK_GROUNDED_COMBAT_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= BEDROCK_GROUNDED_COMBAT_MOVE_GRACE
+                && Math.abs(thisMove.yDistance) <= BEDROCK_GROUNDED_COMBAT_VERTICAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid
+                && isGroundedCombatMove(player, from, to, thisMove);
+    }
+
+    private boolean isBedrockHalfStepVerticalGrace(final Player player, final IPlayerData pData,
+                                                   final PlayerLocation from, final PlayerLocation to,
+                                                   final PlayerMoveData thisMove,
+                                                   final double yDistanceAboveLimit,
+                                                   final double hDistanceAboveLimit) {
+        final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+        return isBedrockPlayer(player, pData)
+                && !Bridge1_9.isGliding(player)
+                && groundish
+                && Math.abs(thisMove.yDistance - BEDROCK_HALF_STEP_VERTICAL_MOVE) <= BEDROCK_HALF_STEP_VERTICAL_EPSILON
+                && yDistanceAboveLimit <= BEDROCK_HALF_STEP_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= BEDROCK_HALF_STEP_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= BEDROCK_HALF_STEP_HORIZONTAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isBedrockStepVerticalUndershootGrace(final Player player, final IPlayerData pData,
+                                                         final PlayerLocation from, final PlayerLocation to,
+                                                         final PlayerMoveData thisMove,
+                                                         final double yDistanceAboveLimit,
+                                                         final double hDistanceAboveLimit) {
+        return isBedrockPlayer(player, pData)
+                && !Bridge1_9.isGliding(player)
+                && isGroundishStepMove(from, to, thisMove)
+                && isStepBlockNear(from, to)
+                && Math.abs(thisMove.yDistance) <= BEDROCK_STEP_VERTICAL_UNDERSHOOT_MOVE_GRACE
+                && Math.abs(thisMove.yAllowedDistance - BEDROCK_HALF_STEP_VERTICAL_MOVE) <= BEDROCK_STEP_VERTICAL_MODEL_GRACE
+                && yDistanceAboveLimit <= BEDROCK_STEP_VERTICAL_UNDERSHOOT_OVER_GRACE
+                && hDistanceAboveLimit <= BEDROCK_STEP_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= BEDROCK_STEP_HORIZONTAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isGroundishStepMove(final PlayerLocation from, final PlayerLocation to,
+                                        final PlayerMoveData thisMove) {
+        return from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
+                || thisMove.touchedGround || thisMove.touchedGroundWorkaround
+                || tags.contains("onground_env") || tags.contains("v_air");
+    }
+
+    private boolean isStepBlockNear(final PlayerLocation from, final PlayerLocation to) {
+        return isStepBlock(from.getBlockType())
+                || isStepBlock(from.getBlockTypeBelow())
+                || isStepBlock(to.getBlockType())
+                || isStepBlock(to.getBlockTypeBelow());
+    }
+
+    private boolean isStepBlock(final Material material) {
+        return material != null
+                && (BlockProperties.isStairs(material) || MaterialUtil.SLABS.contains(material));
+    }
+
+    private boolean isGlidingStallVerticalGrace(final Player player, final MovingData data,
+                                                final PlayerMoveData thisMove,
+                                                final double yDistanceAboveLimit,
+                                                final double hDistanceAboveLimit) {
+        return Bridge1_9.isGliding(player)
+                && data.hasSetBack()
+                && yDistanceAboveLimit <= GLIDING_STALL_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= GLIDING_STALL_HORIZONTAL_OVER_GRACE
+                && Math.abs(thisMove.yDistance) <= GLIDING_STALL_VERTICAL_MOVE_GRACE
+                && thisMove.hDistance <= GLIDING_STALL_HORIZONTAL_MOVE_GRACE;
+    }
+
+    private boolean isElytraLiftOffVerticalGrace(final Player player,
+                                                 final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                 final double yDistanceAboveLimit,
+                                                 final double hDistanceAboveLimit) {
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && lastMove.toIsValid
+                && lastMove.yDistance > 0.0
+                && thisMove.yDistance > 0.0
+                && thisMove.yDistance <= ELYTRA_LIFTOFF_MAX_ASCEND
+                && thisMove.yDistance <= lastMove.yDistance + ELYTRA_LIFTOFF_LAST_Y_GRACE
+                && yDistanceAboveLimit <= ELYTRA_LIFTOFF_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= ELYTRA_LIFTOFF_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_LIFTOFF_HORIZONTAL_MOVE_GRACE;
+    }
+
+    private boolean isElytraGeometryStallVerticalGrace(final Player player,
+                                                       final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                                       final double yDistanceAboveLimit,
+                                                       final double hDistanceAboveLimit) {
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && lastMove.toIsValid
+                && lastMove.yDistance >= ELYTRA_GEOMETRY_STALL_LAST_ASCEND
+                && Math.abs(thisMove.yDistance) <= ELYTRA_GEOMETRY_STALL_MAX_VERTICAL_MOVE
+                && yDistanceAboveLimit <= ELYTRA_GEOMETRY_STALL_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= ELYTRA_GEOMETRY_STALL_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_GEOMETRY_STALL_HORIZONTAL_MOVE_GRACE;
+    }
+
+    private boolean isClimbableVerticalGrace(final PlayerLocation from, final PlayerLocation to,
+                                             final PlayerMoveData thisMove,
+                                             final double yDistanceAboveLimit,
+                                             final double hDistanceAboveLimit) {
+        final boolean climbable = from.isOnClimbable() || to.isOnClimbable()
+                || thisMove.from.onClimbable || thisMove.to.onClimbable;
+        if (!climbable || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid
+                || hDistanceAboveLimit > CLIMBABLE_HORIZONTAL_OVER_GRACE) {
+            return false;
+        }
+        return yDistanceAboveLimit <= CLIMBABLE_VERTICAL_PRECISION_GRACE
+                || thisMove.yDistance >= -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= CLIMBABLE_ASCEND_GRACE
+                || thisMove.yDistance >= -CLIMBABLE_DESCEND_GRACE
+                && thisMove.yDistance <= Magic.PREDICTION_EPSILON
+                && yDistanceAboveLimit <= CLIMBABLE_DESCEND_OVER_GRACE;
+    }
+
+    private boolean isWaterVerticalGrace(final PlayerLocation from, final PlayerLocation to,
+                                         final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                         final double yDistanceAboveLimit,
+                                         final double hDistanceAboveLimit,
+                                         final boolean resetFrom, final boolean resetTo) {
+        final boolean inWater = from.isInWater() || to.isInWater()
+                || thisMove.from.inWater || thisMove.to.inWater;
+        if (!inWater || hDistanceAboveLimit > WATER_HORIZONTAL_OVER_GRACE
+                || thisMove.yDistance < -WATER_DESCEND_GRACE) {
+            return false;
+        }
+        if (thisMove.yDistance < -Magic.PREDICTION_EPSILON && yDistanceAboveLimit <= WATER_DESCEND_OVER_GRACE) {
+            return true;
+        }
+        if (thisMove.yDistance <= WATER_BOB_VERTICAL_GRACE && yDistanceAboveLimit <= WATER_BOB_OVER_GRACE) {
+            return true;
+        }
+        final boolean setbackLike = !lastMove.toIsValid
+                && (resetFrom || thisMove.from.resetCond)
+                && (resetTo || thisMove.to.resetCond);
+        final boolean resetLike = (resetFrom || thisMove.from.resetCond)
+                && (resetTo || thisMove.to.resetCond);
+        if (resetLike && yDistanceAboveLimit <= WATER_RESET_OVER_GRACE) {
+            return true;
+        }
+        return setbackLike
+                && thisMove.yDistance <= WATER_SETBACK_VERTICAL_GRACE
+                && yDistanceAboveLimit <= WATER_SETBACK_OVER_GRACE;
+    }
+
     private boolean isBedrockPlayer(final Player player, final IPlayerData pData) {
-        return pData.isBedrockPlayer() || player.getName().startsWith(".") || isFloodgateUuid(player);
+        return pData.isBedrockPlayer() || player.getName().startsWith(".") || isFloodgateUuid(player) || isFloodgatePlayer(player) || isGeyserPlayer(player);
     }
 
     private boolean isFloodgateUuid(final Player player) {
         return player.getUniqueId().toString().startsWith("00000000-0000-0000-0009-");
+    }
+
+    private boolean isFloodgatePlayer(final Player player) {
+        try {
+            final Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            final Object api = apiClass.getMethod("getInstance").invoke(null);
+            final Object result = apiClass.getMethod("isFloodgatePlayer", java.util.UUID.class).invoke(api, player.getUniqueId());
+            return Boolean.TRUE.equals(result);
+        }
+        catch (ClassNotFoundException | NoSuchMethodException ignored) {
+            return false;
+        }
+        catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean isGeyserPlayer(final Player player) {
+        try {
+            final Class<?> apiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
+            final Object api = apiClass.getMethod("api").invoke(null);
+            return api != null && apiClass.getMethod("connectionByUuid", java.util.UUID.class).invoke(api, player.getUniqueId()) != null;
+        }
+        catch (ClassNotFoundException | NoSuchMethodException ignored) {
+            return false;
+        }
+        catch (Throwable ignored) {
+            return false;
+        }
     }
     
     
@@ -848,6 +1631,7 @@ public class SurvivalFly extends Check {
         final CombinedData cData = pData.getGenericInstance(CombinedData.class);
         final PlayerMoveData thisMove = data.playerMoves.getCurrentMove();
         final PlayerMoveData lastMove = data.playerMoves.getFirstPastMove();
+        final ClientVersion clientVersion = getMovementClientVersion(pData);
         
         // Reference commit of this piece of code: https://github.com/NoCheatPlus/NoCheatPlus/commit/1c024c072c9f6ebe5371c113916c6a2414e635a6
         /////////////////////////////////////////////////////
@@ -1109,7 +1893,7 @@ public class SurvivalFly extends Check {
             if (BridgeMisc.hasGravity(player)) {
                 // Legacy: clients older than 1.13 have some kind of gravity effect applied to them even in liquids, if they don't press the space bar.
                 // On 1.13 and above, only friction gets applied, resulting in a much slower descending speed when not pressing the space bar pressed.
-                if (pData.getClientVersion().isLowerThan(ClientVersion.V_1_13)) {
+                if (clientVersion.isLowerThan(ClientVersion.V_1_13)) {
                     yDistanceBeforeCollide -= Magic.LEGACY_LIQUID_GRAVITY;
                 } 
                 else {
@@ -1123,7 +1907,7 @@ public class SurvivalFly extends Check {
             if (data.lastFrictionVertical != Magic.LAVA_VERTICAL_INERTIA) {
                 yDistanceBeforeCollide *= data.lastFrictionVertical;
                 if (BridgeMisc.hasGravity(player)) {
-                    if (pData.getClientVersion().isLowerThan(ClientVersion.V_1_13)) {
+                    if (clientVersion.isLowerThan(ClientVersion.V_1_13)) {
                         yDistanceBeforeCollide -= Magic.LEGACY_LIQUID_GRAVITY;
                     } 
                     else {
@@ -1216,7 +2000,7 @@ public class SurvivalFly extends Check {
             // TODO: Perhaps after this use collisionVector to store onGround? Also can not restore minecraft ground state with step and jump movement(like stairs)!
             Vector collisionVector = from.collide(new Vector(thisMove.xAllowedDistance, yDistanceBeforeCollide, thisMove.zAllowedDistance), onGround, from.getBoundingBox());
             // Set the supporting block data.
-            if (pData.getClientVersion().isAtLeast(ClientVersion.V_1_20)) {
+            if (clientVersion.isAtLeast(ClientVersion.V_1_20)) {
                 // This is called with setOnGroundWithMovement at the same time of setting the ground flag but before setting the horizontal collision flags.
                 // NOTE: here the bounding box of the TO location must be used.
                 pData.setSupportingBlockData(SupportingBlockUtils.checkSupportingBlock(to.getBlockCache(), player, pData.getSupportingBlockData(), new Vector(thisMove.xAllowedDistance, thisMove.yDistance, thisMove.zAllowedDistance), to.getBoundingBox(), yDistanceBeforeCollide < 0.0 && yDistanceBeforeCollide != collisionVector.getY()));
@@ -1368,7 +2152,7 @@ public class SurvivalFly extends Check {
            Otherwise, only the combined horizontal distance will be checked against the offset.
         */
         boolean strict = cc.survivalFlyStrictHorizontal;
-        final double hiddenThreshold = pData.getClientVersion().isLowerThan(ClientVersion.V_1_18_2) ? Magic.Minecraft_minMoveSqDistance_legacy : Magic.Minecraft_minMoveSqDist_modern;
+        final double hiddenThreshold = clientVersion.isLowerThan(ClientVersion.V_1_18_2) ? Magic.Minecraft_minMoveSqDistance_legacy : Magic.Minecraft_minMoveSqDist_modern;
         for (i = 0; i < 9; i++) {
             if (!collideX[i] && !collideZ[i] && thisMove.yDistance < hiddenThreshold
                 && MathUtil.dist(xTheoreticalDistance[i], zTheoreticalDistance[i]) < hiddenThreshold) {
@@ -1409,7 +2193,7 @@ public class SurvivalFly extends Check {
                 if (!forceViolation) {
                     // Found a candidate to set in this move; these collisions are valid.
                     // Also set the supporting block.
-                    if (pData.getClientVersion().isAtLeast(ClientVersion.V_1_20)) {
+                    if (clientVersion.isAtLeast(ClientVersion.V_1_20)) {
                         pData.setSupportingBlockData(SupportingBlockUtils.checkSupportingBlock(to.getBlockCache(), player, pData.getSupportingBlockData(), new Vector(xTheoreticalDistance[i], thisMove.yDistance, zTheoreticalDistance[i]), to.getBoundingBox(), collideY[i] && yDistanceBeforeCollide < 0.0));
                     }
                     thisMove.collideX = collideX[i];
@@ -1562,6 +2346,7 @@ public class SurvivalFly extends Check {
         /* Not on ground, not on climbable, not in liquids, not in stuck-speed, no lostground (...) */
         final boolean fullyInAir = !thisMove.touchedGroundWorkaround && !resetFrom && !resetTo;
         final CombinedData cData = pData.getGenericInstance(CombinedData.class);
+        final ClientVersion clientVersion = getMovementClientVersion(pData);
         final boolean onGround = from.isOnGround() || lastMove.toIsValid && lastMove.yDistance <= 0.0 && lastMove.from.onGround;
         /*
          * 1: Simulate the reset of speed that the client should have sent to the server.
@@ -1597,6 +2382,13 @@ public class SurvivalFly extends Check {
             thisMove.yAllowedDistance = 0.0;
             yDistanceAboveLimit = 0.0;
             tags.add("onground_env");
+            return new double[]{thisMove.yAllowedDistance, yDistanceAboveLimit};
+        }
+        if (isBedrockLanternCollisionMove(player, pData, from, to, thisMove)) {
+            // Bedrock clients can send small 1/16-ish vertical corrections while moving through lantern collision.
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            yDistanceAboveLimit = 0.0;
+            tags.add("bedrock_lantern");
             return new double[]{thisMove.yAllowedDistance, yDistanceAboveLimit};
         }
         if (PhysicsEnvelope.isJumpMotion(from, to, player, fromOnGround, toOnGround)) {
@@ -1689,7 +2481,7 @@ public class SurvivalFly extends Check {
         // *----------Gravity, friction and other medium-dependent modifiers in LivingEntity.travel() (water first, then lava and finally air)----------*
         data.nextGravity = attributeAccess.getHandle().getGravity(player);
         if (lastMove.from.inWater) {
-            if (lastMove.collidesHorizontally && lastMove.from.onClimbable && pData.getClientVersion().isAtLeast(ClientVersion.V_1_14)) {
+            if (lastMove.collidesHorizontally && lastMove.from.onClimbable && clientVersion.isAtLeast(ClientVersion.V_1_14)) {
                 thisMove.yAllowedDistance = 0.2;
             }
             // Water applies friction before calling the fluidFalling function.
@@ -1697,7 +2489,7 @@ public class SurvivalFly extends Check {
             if (BridgeMisc.hasGravity(player)) {
                 // Legacy: clients older than 1.13 have some kind of gravity effect applied to them even in liquids, if they don't press the space bar.
                 // On 1.13 and above, only friction gets applied, resulting in a much slower descending speed when not pressing the space bar pressed.
-                if (pData.getClientVersion().isLowerThan(ClientVersion.V_1_13)) {
+                if (clientVersion.isLowerThan(ClientVersion.V_1_13)) {
                     thisMove.yAllowedDistance -= Magic.LEGACY_LIQUID_GRAVITY;
                 } 
                 else {
@@ -1713,7 +2505,7 @@ public class SurvivalFly extends Check {
             if (data.lastFrictionVertical != Magic.LAVA_VERTICAL_INERTIA) { // Note that this condition is not vanilla. It's just a shortcut to avoid replicating the condition contained in BlockProperties.getBlockFrictionFactor.
                 thisMove.yAllowedDistance *= data.lastFrictionVertical;
                 if (BridgeMisc.hasGravity(player)) {
-                    if (pData.getClientVersion().isLowerThan(ClientVersion.V_1_13)) {
+                    if (clientVersion.isLowerThan(ClientVersion.V_1_13)) {
                         thisMove.yAllowedDistance -= Magic.LEGACY_LIQUID_GRAVITY;
                     } 
                     else {
@@ -1770,7 +2562,7 @@ public class SurvivalFly extends Check {
             final Material typeId = from.getBlockType();
             final long theseFlags = BlockFlags.getBlockFlags(typeId);
             if (thisMove.yAllowedDistance < 0.0 && pData.isShiftKeyPressed() && from.getEntity() instanceof Player
-                && (theseFlags & BlockFlags.F_SCAFFOLDING) == 0 && pData.getClientVersion().isAtLeast(ClientVersion.V_1_14)) {
+                && (theseFlags & BlockFlags.F_SCAFFOLDING) == 0 && clientVersion.isAtLeast(ClientVersion.V_1_14)) {
                 thisMove.yAllowedDistance = 0.0;
             }
             tags.add("v_climbable");
@@ -1943,7 +2735,7 @@ public class SurvivalFly extends Check {
         // Calculate the offset: check for velocity and workarounds on violations // 
         ////////////////////////////////////////////////////////////////////////////
         if (yTheoreticalDistance != null) {
-            final double hiddenThreshold = pData.getClientVersion().isLowerThan(ClientVersion.V_1_18_2) ? Magic.Minecraft_minMoveSqDistance_legacy : Magic.Minecraft_minMoveSqDist_modern;
+            final double hiddenThreshold = clientVersion.isLowerThan(ClientVersion.V_1_18_2) ? Magic.Minecraft_minMoveSqDistance_legacy : Magic.Minecraft_minMoveSqDist_modern;
             if (thisMove.hDistance < hiddenThreshold) {
                 for (int i = 0; i < yTheoreticalDistance.length; i++) {
                     if (yTheoreticalDistance[i] < hiddenThreshold && !collideLiquidY[i]) {
@@ -1997,6 +2789,17 @@ public class SurvivalFly extends Check {
             }
         }
         return new double[]{thisMove.yAllowedDistance, yDistanceAboveLimit};
+    }
+
+    private boolean isBedrockLanternCollisionMove(final Player player, final IPlayerData pData,
+                                                  final PlayerLocation from, final PlayerLocation to,
+                                                  final PlayerMoveData thisMove) {
+        return isBedrockPlayer(player, pData)
+            && thisMove.hDistance <= 0.35
+            && thisMove.yDistance >= -0.125
+            && thisMove.yDistance <= 0.625
+            && (MaterialUtil.LANTERNS.contains(from.getBlockType())
+                || MaterialUtil.LANTERNS.contains(to.getBlockType()));
     }
 
     private double getLastYGroundRipTide(PlayerLocation from, PlayerMoveData lastMove, MovingData data, CombinedData cData) {
@@ -2094,24 +2897,166 @@ public class SurvivalFly extends Check {
          */
         // TODO: Implement Asofold's fix to prevent too easy abuse:
         // See: https://github.com/NoCheatPlus/Issues/issues/374#issuecomment-296172316
-        //double hFreedom = 0.0; // Horizontal velocity used.
-        //if (hDistanceAboveLimit > 0.0) {
-        //    hFreedom = data.getHorizontalFreedom();
-        //    if (hFreedom < hDistanceAboveLimit) {
-        //        // Distance above limit is still greater. Try using queued velocity if possible.
-        //        hFreedom += data.useHorizontalVelocity(hDistanceAboveLimit - hFreedom);
-        //    }
-        //    if (hFreedom > 0.0) {
-        //        tags.add("hvel");
-        //        hDistanceAboveLimit = Math.max(0.0, hDistanceAboveLimit - hFreedom);
-        //    }
-        //}
-        return new double[]{hAllowedDistance, hDistanceAboveLimit, 0.0};
+        double hFreedom = 0.0; // Horizontal velocity used.
+        if (hDistanceAboveLimit > 0.0) {
+            final double xDemand = thisMove.xDistance - thisMove.xAllowedDistance;
+            final double zDemand = thisMove.zDistance - thisMove.zAllowedDistance;
+            if (!data.useHorizontalVelocityCovering(xDemand, zDemand, cc.velocityActivationCounter).isEmpty()) {
+                hFreedom = MathUtil.dist(xDemand, zDemand);
+                thisMove.xAllowedDistance = thisMove.xDistance;
+                thisMove.zAllowedDistance = thisMove.zDistance;
+                thisMove.hAllowedDistance = thisMove.hDistance;
+                tags.add("hvel");
+                hDistanceAboveLimit = 0.0;
+                hAllowedDistance = thisMove.hAllowedDistance;
+            }
+            else if (currentHorizontalVelocityCovers(player, xDemand, zDemand)) {
+                hFreedom = MathUtil.dist(xDemand, zDemand);
+                thisMove.xAllowedDistance = thisMove.xDistance;
+                thisMove.zAllowedDistance = thisMove.zDistance;
+                thisMove.hAllowedDistance = thisMove.hDistance;
+                tags.add("hvel_current");
+                hDistanceAboveLimit = 0.0;
+                hAllowedDistance = thisMove.hAllowedDistance;
+            }
+        }
+        return new double[]{hAllowedDistance, hDistanceAboveLimit, hFreedom};
+    }
+
+    private boolean currentHorizontalVelocityCovers(final Player player, final double xDemand, final double zDemand) {
+        final double demandSq = xDemand * xDemand + zDemand * zDemand;
+        if (demandSq <= Magic.PREDICTION_EPSILON * Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final Vector velocity = player.getVelocity();
+        final double vx = velocity.getX();
+        final double vz = velocity.getZ();
+        final double velocitySq = vx * vx + vz * vz;
+        if (velocitySq <= Magic.PREDICTION_EPSILON * Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double dot = vx * xDemand + vz * zDemand;
+        if (dot < -Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double demand = Math.sqrt(demandSq);
+        final double velocityAmount = Math.sqrt(velocitySq);
+        if (demand > velocityAmount + CURRENT_VELOCITY_AMOUNT_GRACE) {
+            return false;
+        }
+        final double perpendicular = Math.abs(vx * zDemand - vz * xDemand) / velocityAmount;
+        return perpendicular <= CURRENT_VELOCITY_PERPENDICULAR_GRACE;
+    }
+
+    private boolean currentGlidingVerticalVelocityMatches(final Player player, final PlayerMoveData thisMove,
+                                                          final double yAllowedDistance,
+                                                          final double yDistanceAboveLimit) {
+        if (yDistanceAboveLimit > GLIDING_CURRENT_VELOCITY_VERTICAL_OVER_GRACE) {
+            return false;
+        }
+        final Vector velocity = player.getVelocity();
+        final double actualVelocityDiff = Math.abs(thisMove.yDistance - velocity.getY());
+        if (actualVelocityDiff <= GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE) {
+            return true;
+        }
+        final double modelVelocityDiff = Math.abs(yAllowedDistance - velocity.getY());
+        return actualVelocityDiff <= GLIDING_CURRENT_VELOCITY_VERTICAL_MODEL_DIFF_GRACE
+                && actualVelocityDiff + GLIDING_CURRENT_VELOCITY_BETTER_MODEL_GRACE < modelVelocityDiff;
+    }
+
+    private boolean currentGlidingHorizontalVelocityCovers(final Player player, final PlayerMoveData thisMove,
+                                                           final double xAllowedDistance, final double zAllowedDistance,
+                                                           final double xDemand, final double zDemand) {
+        final double demandSq = xDemand * xDemand + zDemand * zDemand;
+        if (demandSq <= Magic.PREDICTION_EPSILON * Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final Vector velocity = player.getVelocity();
+        final double vx = velocity.getX();
+        final double vz = velocity.getZ();
+        final double velocitySq = vx * vx + vz * vz;
+        if (velocitySq <= Magic.PREDICTION_EPSILON * Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double actualVelocityDiff = MathUtil.dist(thisMove.xDistance - vx, thisMove.zDistance - vz);
+        final double modelVelocityDiff = MathUtil.dist(xAllowedDistance - vx, zAllowedDistance - vz);
+        if (actualVelocityDiff <= GLIDING_CURRENT_VELOCITY_HORIZONTAL_MODEL_DIFF_GRACE
+                && actualVelocityDiff + GLIDING_CURRENT_VELOCITY_BETTER_MODEL_GRACE < modelVelocityDiff) {
+            return true;
+        }
+        final double dot = vx * xDemand + vz * zDemand;
+        if (dot < -Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double demand = Math.sqrt(demandSq);
+        final double velocityAmount = Math.sqrt(velocitySq);
+        if (demand > velocityAmount + GLIDING_CURRENT_VELOCITY_HORIZONTAL_AMOUNT_GRACE
+                || thisMove.hDistance > velocityAmount + GLIDING_CURRENT_VELOCITY_HORIZONTAL_MOVE_GRACE) {
+            return false;
+        }
+        final double perpendicular = Math.abs(vx * zDemand - vz * xDemand) / velocityAmount;
+        return perpendicular <= GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE;
+    }
+
+    private void addGlidingVerticalPredictionTags(final double offsetV) {
+        addTag("glide_vertical_prediction_miss");
+        addTag(offsetV > 0.0 ? "glide_vertical_actual_above_model" : "glide_vertical_actual_below_model");
+    }
+
+    private void addGlidingHorizontalPredictionTags(final double offsetH) {
+        addTag("glide_horizontal_prediction_miss");
+        addTag(offsetH > 0.0 ? "glide_horizontal_actual_above_model" : "glide_horizontal_actual_below_model");
+    }
+
+    private void addGlidingLookAndFireworkTags(final MovingData data, final PlayerLocation to,
+                                               final PlayerMoveData move,
+                                               final double offsetV, final double offsetH) {
+        final String pitchBand = getElytraPitchBand(to.getPitch());
+        addTag("glide_pitch_" + pitchBand.toLowerCase(Locale.ROOT));
+        if (data.fireworksBoostDuration <= 0) {
+            return;
+        }
+        addTag("glide_firework_pitch_" + pitchBand.toLowerCase(Locale.ROOT));
+        if (offsetV < -0.05D) {
+            addTag("glide_firework_vertical_model_high");
+        }
+        else if (offsetV > 0.05D) {
+            addTag("glide_firework_vertical_model_low");
+        }
+        if (offsetH < -0.05D || move.hDistance + 0.05D < move.hAllowedDistance) {
+            addTag("glide_firework_horizontal_model_fast");
+        }
+        else if (offsetH > 0.05D) {
+            addTag("glide_firework_horizontal_model_slow");
+        }
+    }
+
+    private String getElytraPitchBand(final float pitch) {
+        if (pitch <= -15.0f) {
+            return "UP_STEEP";
+        }
+        if (pitch <= -5.0f) {
+            return "UP";
+        }
+        if (pitch < 5.0f) {
+            return "LEVEL";
+        }
+        if (pitch < 15.0f) {
+            return "DOWN";
+        }
+        return "DOWN_STEEP";
+    }
+
+    private void addTag(final String tag) {
+        if (!tags.contains(tag)) {
+            tags.add(tag);
+        }
     }
 
     private void logConsoleDetails(final double result,
                                    final Player player, final PlayerLocation from, final PlayerLocation to,
-                                   final MovingData data, final IPlayerData pData,
+                                   final Location setback,
+                                   final MovingData data, final MovingConfig cc, final IPlayerData pData,
                                    final PlayerMoveData thisMove, final PlayerMoveData lastMove,
                                    final double hAllowedDistance, final double hDistanceAboveLimit,
                                    final double hFreedom, final double yAllowedDistance,
@@ -2125,13 +3070,18 @@ public class SurvivalFly extends Check {
                 .append(" bedrock=").append(isBedrockPlayer(player, pData))
                 .append(" bedrockData=").append(pData.isBedrockPlayer())
                 .append(" uuid=").append(player.getUniqueId())
+                .append(" client=").append(pData.getClientVersion())
+                .append(" movementClient=").append(getMovementClientVersion(pData))
                 .append(" tick=").append(tick)
                 .append(" now=").append(now)
                 .append(" moveCount=").append(data.getPlayerMoveCount())
                 .append(" multiMove=").append(multiMoveCount)
                 .append(" packetSplit=").append(isNormalOrPacketSplitMove)
+                .append(" movementMode=").append(formatMovementMode(player, data, from, to, thisMove,
+                        fromOnGround, resetFrom, toOnGround, resetTo))
                 .append(" addVL=").append(StringUtil.fdec3.format(result))
                 .append(" totalVL=").append(StringUtil.fdec3.format(data.survivalFlyVL))
+                .append(" setback=").append(formatBukkitLocation(setback))
                 .append(" hDist=").append(StringUtil.fdec6.format(thisMove.hDistance))
                 .append(" xDist=").append(StringUtil.fdec6.format(thisMove.xDistance))
                 .append(" zDist=").append(StringUtil.fdec6.format(thisMove.zDistance))
@@ -2172,6 +3122,7 @@ public class SurvivalFly extends Check {
                 .append(" speedData=walk:").append(StringUtil.fdec3.format(data.walkSpeed)).append("->").append(StringUtil.fdec3.format(data.nextWalkSpeed))
                 .append(",speedTick:").append(data.speedTick)
                 .append(",jumpDelay:").append(data.jumpDelay)
+                .append(",fireworkBoost:").append(data.fireworksBoostDuration)
                 .append(",setbackAge:").append(data.timeSinceSetBack)
                 .append(" jumpPhase=").append(data.sfJumpPhase)
                 .append(" liftOff=").append(data.liftOffEnvelope.name())
@@ -2182,8 +3133,341 @@ public class SurvivalFly extends Check {
                 .append(" stopMotion=").append(thisMove.possibleStopMotion)
                 .append(" vVelUsed=").append(thisMove.verVelUsed)
                 .append(" velQueued=").append(formatVelocity(data))
+                .append(" movementModel=").append(formatMovementModel(thisMove, hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit))
+                .append(" elytraModel=").append(formatElytraModel(player, from, to, data, thisMove, hAllowedDistance, yAllowedDistance))
+                .append(" inputModel=").append(formatInputModel(data, thisMove))
+                .append(" environment=").append(formatEnvironment(from, to, thisMove))
+                .append(" config=").append(formatConfig(cc))
+                .append(" runtime=").append(formatRuntimeState(player, pData))
+                .append(" bedrockBridge=").append(formatBedrockBridgeDetails(player))
                 .append(" tags=").append(StringUtil.join(tags, "+"));
         player.getServer().getLogger().info(builder.toString());
+    }
+
+    private String formatMovementMode(final Player player, final MovingData data,
+                                      final PlayerLocation from, final PlayerLocation to,
+                                      final PlayerMoveData move,
+                                      final boolean fromOnGround, final boolean resetFrom,
+                                      final boolean toOnGround, final boolean resetTo) {
+        if (player.isInsideVehicle()) {
+            return player.getVehicle() == null ? "VEHICLE" : "VEHICLE_" + player.getVehicle().getType().name();
+        }
+        if (Bridge1_9.isGliding(player)) {
+            return data.fireworksBoostDuration > 0 ? "ELYTRA_FIREWORK" : "ELYTRA_GLIDING";
+        }
+        if (Bridge1_9.isWearingElytra(player)) {
+            return fromOnGround || resetFrom || toOnGround || resetTo ? "ELYTRA_EQUIPPED_GROUND" : "ELYTRA_EQUIPPED_AIR";
+        }
+        if (from.isInWater() || to.isInWater() || move.from.inWater || move.to.inWater) {
+            return "WATER";
+        }
+        if (from.isInLava() || to.isInLava() || move.from.inLava || move.to.inLava) {
+            return "LAVA";
+        }
+        if (from.isOnClimbable() || to.isOnClimbable() || move.from.onClimbable || move.to.onClimbable) {
+            return "CLIMBABLE";
+        }
+        if (from.isInWeb() || to.isInWeb() || move.from.inWeb || move.to.inWeb) {
+            return "WEB";
+        }
+        if (from.isInBerryBush() || to.isInBerryBush() || move.from.inBerryBush || move.to.inBerryBush) {
+            return "BERRY_BUSH";
+        }
+        if (from.isInPowderSnow() || to.isInPowderSnow() || move.from.inPowderSnow || move.to.inPowderSnow) {
+            return "POWDER_SNOW";
+        }
+        if (fromOnGround || resetFrom || toOnGround || resetTo || move.from.onGroundOrResetCond || move.to.onGroundOrResetCond) {
+            return "GROUND";
+        }
+        return "AIR";
+    }
+
+    private String formatMovementModel(final PlayerMoveData move,
+                                       final double hAllowedDistance, final double hDistanceAboveLimit,
+                                       final double yAllowedDistance, final double yDistanceAboveLimit) {
+        final double xOver = move.xDistance - move.xAllowedDistance;
+        final double yOver = move.yDistance - yAllowedDistance;
+        final double zOver = move.zDistance - move.zAllowedDistance;
+        final double hOverRaw = move.hDistance - hAllowedDistance;
+        final StringBuilder builder = new StringBuilder(320);
+        builder.append("actual=").append(formatVector(move.xDistance, move.yDistance, move.zDistance))
+                .append(",allowed=").append(formatVector(move.xAllowedDistance, yAllowedDistance, move.zAllowedDistance))
+                .append(",overVector=").append(formatVector(xOver, yOver, zOver))
+                .append(",hOverRaw=").append(StringUtil.fdec6.format(hOverRaw))
+                .append(",hOverApplied=").append(StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0)))
+                .append(",yOverRaw=").append(StringUtil.fdec6.format(yOver))
+                .append(",yOverApplied=").append(StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0)))
+                .append(",ratio=h:").append(formatRatio(move.hDistance, hAllowedDistance))
+                .append(",x:").append(formatRatio(Math.abs(move.xDistance), Math.abs(move.xAllowedDistance)))
+                .append(",y:").append(formatRatio(Math.abs(move.yDistance), Math.abs(yAllowedDistance)))
+                .append(",z:").append(formatRatio(Math.abs(move.zDistance), Math.abs(move.zAllowedDistance)))
+                .append(",distSq=").append(StringUtil.fdec6.format(move.distanceSquared))
+                .append(",modelFlying=").append(move.modelFlying == null ? "none" : move.modelFlying.getId())
+                .append(",flyCheck=").append(move.flyCheck == null ? "none" : move.flyCheck.name());
+        return builder.toString();
+    }
+
+    private String formatElytraModel(final Player player, final PlayerLocation from, final PlayerLocation to,
+                                     final MovingData data, final PlayerMoveData move,
+                                     final double hAllowedDistance, final double yAllowedDistance) {
+        if (!Bridge1_9.isGliding(player) && !Bridge1_9.isWearingElytra(player)) {
+            return "none";
+        }
+        final Vector look = TrigUtil.getLookingDirection(to, player);
+        final Vector velocity = player.getVelocity();
+        final double actualVelocityDx = move.xDistance - velocity.getX();
+        final double actualVelocityDy = move.yDistance - velocity.getY();
+        final double actualVelocityDz = move.zDistance - velocity.getZ();
+        final double allowedVelocityDx = move.xAllowedDistance - velocity.getX();
+        final double allowedVelocityDy = yAllowedDistance - velocity.getY();
+        final double allowedVelocityDz = move.zAllowedDistance - velocity.getZ();
+        final StringBuilder builder = new StringBuilder(420);
+        builder.append("pitch=").append(StringUtil.fdec3.format(from.getPitch())).append("->").append(StringUtil.fdec3.format(to.getPitch()))
+                .append(",pitchDelta=").append(StringUtil.fdec3.format(to.getPitch() - from.getPitch()))
+                .append(",pitchBand=").append(getElytraPitchBand(to.getPitch()))
+                .append(",yaw=").append(StringUtil.fdec3.format(from.getYaw())).append("->").append(StringUtil.fdec3.format(to.getYaw()))
+                .append(",yawDelta=").append(StringUtil.fdec3.format(getYawDelta(from.getYaw(), to.getYaw())))
+                .append(",look=").append(formatVector(look))
+                .append(",lookH=").append(StringUtil.fdec6.format(MathUtil.dist(look.getX(), look.getZ())))
+                .append(",lookY=").append(StringUtil.fdec6.format(look.getY()))
+                .append(",firework=").append(data.fireworksBoostDuration)
+                .append(",actualH=").append(StringUtil.fdec6.format(move.hDistance))
+                .append(",allowedH=").append(StringUtil.fdec6.format(hAllowedDistance))
+                .append(",actualY=").append(StringUtil.fdec6.format(move.yDistance))
+                .append(",allowedY=").append(StringUtil.fdec6.format(yAllowedDistance))
+                .append(",velocity=").append(formatVector(velocity))
+                .append(",actualMinusVelocity=").append(formatVector(actualVelocityDx, actualVelocityDy, actualVelocityDz))
+                .append(",allowedMinusVelocity=").append(formatVector(allowedVelocityDx, allowedVelocityDy, allowedVelocityDz));
+        return builder.toString();
+    }
+
+    private double getYawDelta(final float fromYaw, final float toYaw) {
+        double delta = toYaw - fromYaw;
+        while (delta > 180.0D) {
+            delta -= 360.0D;
+        }
+        while (delta < -180.0D) {
+            delta += 360.0D;
+        }
+        return delta;
+    }
+
+    private String formatInputModel(final MovingData data, final PlayerMoveData move) {
+        final PlayerKeyboardInput input = data.input;
+        final StringBuilder builder = new StringBuilder(260);
+        builder.append("current=").append(input.getForwardDir()).append('/').append(input.getStrafeDir())
+                .append('(').append(StringUtil.fdec3.format(input.getForward())).append('/')
+                .append(StringUtil.fdec3.format(input.getStrafe())).append(')')
+                .append(",last=(").append(StringUtil.fdec3.format(input.getLastForward())).append('/')
+                .append(StringUtil.fdec3.format(input.getLastStrafe())).append(')')
+                .append(",inputSq=").append(StringUtil.fdec3.format(input.getHorizontalInputSquared()))
+                .append(",hasHImpulse=").append(input.hasHorizontalImpulse())
+                .append(",keys=jump:").append(input.isSpaceBarPressed()).append("->").append(input.wasSpaceBarPressed())
+                .append(",sneak:").append(input.isShift()).append("->").append(input.wasShifting())
+                .append(",sprint:").append(input.isSprintingKeyPressed()).append("->").append(input.wasSprintingKeyPressed())
+                .append(",moveImpulse=").append(move.hasImpulse)
+                .append('/').append(move.forwardImpulse)
+                .append('/').append(move.strafeImpulse);
+        return builder.toString();
+    }
+
+    private String formatEnvironment(final PlayerLocation from, final PlayerLocation to, final PlayerMoveData move) {
+        final StringBuilder builder = new StringBuilder(520);
+        builder.append("from{").append(formatRichLocation(from)).append(",trace=").append(formatMoveLocation(move.from)).append('}')
+                .append(" to{").append(formatRichLocation(to)).append(",trace=").append(formatMoveLocation(move.to)).append('}');
+        return builder.toString();
+    }
+
+    private String formatRichLocation(final PlayerLocation location) {
+        try {
+            return "world=" + location.getWorldName()
+                    + ",pos=" + formatLocation(location)
+                    + ",look=" + StringUtil.fdec3.format(location.getYaw()) + "/" + StringUtil.fdec3.format(location.getPitch())
+                    + ",block=" + location.getBlockType()
+                    + ",below=" + location.getBlockTypeBelow()
+                    + ",above=" + location.getBlockTypeAbove()
+                    + ",flags=ground:" + location.isOnGround()
+                    + ",reset:" + location.isResetCond()
+                    + ",water:" + location.isInWater()
+                    + ",lava:" + location.isInLava()
+                    + ",waterlogged:" + location.isInWaterLogged()
+                    + ",climb:" + location.isOnClimbable()
+                    + ",web:" + location.isInWeb()
+                    + ",berry:" + location.isInBerryBush()
+                    + ",powder:" + location.isInPowderSnow()
+                    + ",bubble:" + location.isInBubbleStream()
+                    + ",ice:" + location.isOnIce()
+                    + ",blueIce:" + location.isOnBlueIce()
+                    + ",slime:" + location.isOnSlimeBlock()
+                    + ",honey:" + location.isOnHoneyBlock()
+                    + ",soulSand:" + location.isInSoulSand()
+                    + ",passable:" + location.isPassable()
+                    + ",bbox=" + formatBoundingBox(location.getBoundingBox());
+        }
+        catch (Throwable t) {
+            return "unavailable:" + t.getClass().getSimpleName();
+        }
+    }
+
+    private String formatMoveLocation(final fr.neatmonster.nocheatplus.checks.moving.model.LocationData location) {
+        if (!location.extraPropertiesValid) {
+            return "extra=invalid";
+        }
+        return "extra=ground:" + location.onGround
+                + ",reset:" + location.resetCond
+                + ",liquid:" + location.inLiquid
+                + ",water:" + location.inWater
+                + ",lava:" + location.inLava
+                + ",climb:" + location.onClimbable
+                + ",web:" + location.inWeb
+                + ",berry:" + location.inBerryBush
+                + ",powder:" + location.inPowderSnow
+                + ",touchedPowder:" + location.touchedPowderSnow
+                + ",ice:" + location.onIce
+                + ",blueIce:" + location.onBlueIce
+                + ",slime:" + location.onSlimeBlock
+                + ",honey:" + location.onHoneyBlock
+                + ",soulSand:" + location.inSoulSand
+                + ",bubble:" + location.inBubbleStream
+                + ",bouncy:" + location.onBouncyBlock;
+    }
+
+    private String formatConfig(final MovingConfig cc) {
+        return "strictH:" + cc.survivalFlyStrictHorizontal
+                + ",step:" + StringUtil.fdec3.format(cc.sfStepHeight)
+                + ",yOnGround:" + StringUtil.fdec6.format(cc.yOnGround)
+                + ",hover:" + cc.sfHoverCheck + "/" + cc.sfHoverTicks
+                + ",speedGraceTicks:" + cc.speedGrace;
+    }
+
+    private String formatRuntimeState(final Player player, final IPlayerData pData) {
+        final StringBuilder builder = new StringBuilder(360);
+        builder.append("server=").append(player.getServer().getBukkitVersion())
+                .append(",gameMode=").append(player.getGameMode())
+                .append(",velocity=").append(formatVector(player.getVelocity()))
+                .append(",fall=").append(StringUtil.fdec3.format(player.getFallDistance()))
+                .append(",health=").append(StringUtil.fdec3.format(player.getHealth()))
+                .append(",food=").append(player.getFoodLevel())
+                .append(",sprintData=").append(pData.isSprinting())
+                .append(",effects=").append(formatPotionEffects(player));
+        return builder.toString();
+    }
+
+    private String formatPotionEffects(final Player player) {
+        final Collection<PotionEffect> effects = player.getActivePotionEffects();
+        if (effects.isEmpty()) {
+            return "none";
+        }
+        final StringBuilder builder = new StringBuilder(160);
+        for (final PotionEffect effect : effects) {
+            if (builder.length() > 0) {
+                builder.append('|');
+            }
+            builder.append(effect.getType().getName())
+                    .append(':').append(effect.getAmplifier())
+                    .append('@').append(effect.getDuration());
+        }
+        return builder.toString();
+    }
+
+    private String formatBedrockBridgeDetails(final Player player) {
+        return "floodgate{" + formatFloodgateDetails(player) + "},geyser{" + formatGeyserDetails(player) + "}";
+    }
+
+    private String formatFloodgateDetails(final Player player) {
+        try {
+            final Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            final Object api = apiClass.getMethod("getInstance").invoke(null);
+            final Object isFloodgatePlayer = apiClass.getMethod("isFloodgatePlayer", java.util.UUID.class).invoke(api, player.getUniqueId());
+            final Object floodgatePlayer = apiClass.getMethod("getPlayer", java.util.UUID.class).invoke(api, player.getUniqueId());
+            if (floodgatePlayer == null) {
+                final StringBuilder builder = new StringBuilder(Boolean.TRUE.equals(isFloodgatePlayer) ? "online,no-player-object" : "none");
+                appendNoArgValue(builder, api, "prefix", "getPlayerPrefix");
+                return builder.toString();
+            }
+            final StringBuilder builder = new StringBuilder("online");
+            builder.append(",isFloodgatePlayer=").append(isFloodgatePlayer);
+            appendNoArgValue(builder, api, "prefix", "getPlayerPrefix");
+            appendNoArgValue(builder, floodgatePlayer, "username", "getUsername");
+            appendNoArgValue(builder, floodgatePlayer, "javaName", "getJavaUsername");
+            appendNoArgValue(builder, floodgatePlayer, "xuid", "getXuid");
+            appendNoArgValue(builder, floodgatePlayer, "version", "getVersion");
+            appendNoArgValue(builder, floodgatePlayer, "device", "getDeviceOs");
+            appendNoArgValue(builder, floodgatePlayer, "input", "getInputMode");
+            appendNoArgValue(builder, floodgatePlayer, "ui", "getUiProfile");
+            appendNoArgValue(builder, floodgatePlayer, "lang", "getLanguageCode");
+            appendNoArgValue(builder, floodgatePlayer, "linked", "isLinked");
+            return builder.toString();
+        }
+        catch (ClassNotFoundException ignored) {
+            return "not-present";
+        }
+        catch (Throwable t) {
+            return "error:" + formatThrowable(t);
+        }
+    }
+
+    private String formatGeyserDetails(final Player player) {
+        try {
+            final Class<?> apiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
+            final Object api = apiClass.getMethod("api").invoke(null);
+            if (api == null) {
+                return "none";
+            }
+            final Object connection = apiClass.getMethod("connectionByUuid", java.util.UUID.class).invoke(api, player.getUniqueId());
+            if (connection == null) {
+                return "none";
+            }
+            final StringBuilder builder = new StringBuilder("online");
+            appendNoArgValue(builder, connection, "protocol", "protocolVersion");
+            appendNoArgValue(builder, connection, "ping", "ping");
+            appendNoArgValue(builder, connection, "formOpen", "hasFormOpen");
+            appendNoArgValue(builder, connection, "joinAddress", "joinAddress");
+            appendNoArgValue(builder, connection, "joinPort", "joinPort");
+            appendNoArgValue(builder, connection, "playFab", "playFabId");
+            return builder.toString();
+        }
+        catch (ClassNotFoundException ignored) {
+            return "not-present";
+        }
+        catch (Throwable t) {
+            return "error:" + formatThrowable(t);
+        }
+    }
+
+    private String formatThrowable(final Throwable t) {
+        if (t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null) {
+            return t.getCause().getClass().getSimpleName();
+        }
+        return t.getClass().getSimpleName();
+    }
+
+    private void appendNoArgValue(final StringBuilder builder, final Object target, final String label, final String methodName) {
+        try {
+            final Object value = target.getClass().getMethod(methodName).invoke(target);
+            builder.append(',').append(label).append('=').append(value);
+        }
+        catch (Throwable ignored) {}
+    }
+
+    private String formatRatio(final double actual, final double allowed) {
+        if (Math.abs(allowed) < 1.0E-9) {
+            return Math.abs(actual) < 1.0E-9 ? "1.000" : "inf";
+        }
+        return StringUtil.fdec3.format(actual / allowed);
+    }
+
+    private String formatVector(final Vector vector) {
+        return formatVector(vector.getX(), vector.getY(), vector.getZ());
+    }
+
+    private String formatVector(final double x, final double y, final double z) {
+        return StringUtil.fdec6.format(x) + "," + StringUtil.fdec6.format(y) + "," + StringUtil.fdec6.format(z);
+    }
+
+    private String formatBoundingBox(final double[] box) {
+        return StringUtil.fdec3.format(box[0]) + "," + StringUtil.fdec3.format(box[1]) + "," + StringUtil.fdec3.format(box[2])
+                + "->" + StringUtil.fdec3.format(box[3]) + "," + StringUtil.fdec3.format(box[4]) + "," + StringUtil.fdec3.format(box[5]);
     }
 
     private String formatMoveFlags(final PlayerMoveData move) {
@@ -2231,6 +3515,15 @@ public class SurvivalFly extends Check {
         return String.format(Locale.US, "%.3f,%.3f,%.3f", location.getX(), location.getY(), location.getZ());
     }
 
+    private String formatBukkitLocation(final Location location) {
+        if (location == null) {
+            return "none";
+        }
+        return String.format(Locale.US, "%s@%.3f,%.3f,%.3f/%.3f,%.3f",
+                location.getWorld() == null ? "null" : location.getWorld().getName(),
+                location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch());
+    }
+
     /**
      * Handles a violation for Survivalfly.
      * 
@@ -2240,6 +3533,7 @@ public class SurvivalFly extends Check {
                                      final Player player, final PlayerLocation from, final PlayerLocation to,
                                      final MovingData data, final MovingConfig cc) {
         // Increment violation level.
+        addViolationModeTag(player, from, to, data.playerMoves.getCurrentMove(), data);
         data.survivalFlyVL += result;
         data.sfVLMoveCount = data.getPlayerMoveCount();
         final ViolationData vd = new ViolationData(this, player, data.survivalFlyVL, result, cc.survivalFlyActions);
@@ -2259,6 +3553,13 @@ public class SurvivalFly extends Check {
             // Cancelled by other plugin, or no cancel set by configuration.
             return null;
         }
+    }
+
+    private void addViolationModeTag(final Player player, final PlayerLocation from, final PlayerLocation to,
+                                     final PlayerMoveData move, final MovingData data) {
+        final String mode = formatMovementMode(player, data, from, to, move,
+                from.isOnGround(), from.isResetCond(), to.isOnGround(), to.isResetCond());
+        addTag("mode_" + mode.toLowerCase(Locale.ROOT));
     }
 
 

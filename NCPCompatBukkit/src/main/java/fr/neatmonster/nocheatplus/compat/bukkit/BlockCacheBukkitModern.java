@@ -21,6 +21,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 
+import fr.neatmonster.nocheatplus.compat.SchedulerHelper;
 import fr.neatmonster.nocheatplus.compat.bukkit.model.BukkitShapeModel;
 import fr.neatmonster.nocheatplus.utilities.map.MaterialUtil;
 
@@ -91,9 +92,15 @@ public class BlockCacheBukkitModern extends BlockCacheBukkit {
     
     @Override
     public boolean standsOnEntity(final Entity entity, final double minX, final double minY, final double minZ, final double maxX, final double maxY, final double maxZ) {
+        if (!SchedulerHelper.isOwnedByCurrentRegion(entity)) {
+            return false;
+        }
         try {
             // TODO: Probably check vehicle ids too before doing this ?
             for (final Entity vehicle : entity.getNearbyEntities(0.1, 2.0, 0.1)) {
+                if (!SchedulerHelper.isOwnedByCurrentRegion(vehicle)) {
+                    continue;
+                }
                 final EntityType type = vehicle.getType();
                 if (!MaterialUtil.isBoat(type) && type != EntityType.SHULKER) { //  && !(vehicle instanceof Minecart)) 
                     continue;

@@ -25,6 +25,7 @@ import org.bukkit.block.data.type.BubbleColumn;
 import org.bukkit.entity.Entity;
 import org.bukkit.util.Vector;
 
+import fr.neatmonster.nocheatplus.compat.SchedulerHelper;
 import fr.neatmonster.nocheatplus.compat.blocks.changetracker.BlockChangeReference;
 import fr.neatmonster.nocheatplus.compat.blocks.changetracker.BlockChangeTracker;
 import fr.neatmonster.nocheatplus.compat.blocks.changetracker.BlockChangeTracker.BlockChangeEntry;
@@ -623,6 +624,9 @@ public class RichBoundsLocation implements IGetBukkitLocation, IGetBlockPosition
     public Vector tryApplyBubbleColumnMotion(Vector vector) {
         if (!isInBubbleStream()) {
             // Client-version checking is already contained in isInBubbleStream.
+            return vector;
+        }
+        if (!SchedulerHelper.isOwnedByCurrentRegion(world, this.blockX, this.blockZ, 1)) {
             return vector;
         }
         // Determine whether the block above the column is effectively "air".

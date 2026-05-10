@@ -71,7 +71,7 @@ public class BlockCacheBukkit extends BlockCache {
     public double[] fetchBounds(final int x, final int y, final int z){
         Material mat = getType(x, y, z);
         long flags = BlockFlags.getBlockFlags(mat);
-        if (flags == BlockFlags.F_IGN_PASSABLE) {
+        if (flags == BlockFlags.F_IGN_PASSABLE_CHECK) {
             return null;
         }
         // TODO: Want to maintain a list with manual entries or at least half / full blocks ?
@@ -119,7 +119,7 @@ public class BlockCacheBukkit extends BlockCache {
     public double[] fetchVisualBounds(int x, int y, int z) {
         Material mat = getType(x, y, z);
         long flags = BlockFlags.getBlockFlags(mat);
-        if (flags == BlockFlags.F_IGN_PASSABLE) {
+        if (flags == BlockFlags.F_IGN_PASSABLE_CHECK) {
             return null;
         }
         // TODO: Want to maintain a list with manual entries or at least half / full blocks ?

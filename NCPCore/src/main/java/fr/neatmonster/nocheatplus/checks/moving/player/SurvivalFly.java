@@ -125,6 +125,14 @@ public class SurvivalFly extends Check {
     private static final double THIN_SUPPORT_VERTICAL_MOVE_GRACE = 0.45D;
     private static final double NEWER_CLIENT_HORIZONTAL_OVER_GRACE = 0.04D;
     private static final double NEWER_CLIENT_HORIZONTAL_MOVE_GRACE = 0.34D;
+    private static final double GROUNDED_MICRO_OVER_GRACE = 0.12D;
+    private static final double GROUNDED_MICRO_MOVE_GRACE = 0.70D;
+    private static final double GROUNDED_JUMP_HORIZONTAL_OVER_GRACE = 0.05D;
+    private static final double GROUNDED_JUMP_HORIZONTAL_MOVE_GRACE = 0.75D;
+    private static final double GROUNDED_JUMP_VERTICAL_MOVE_GRACE = 0.46D;
+    private static final double GROUNDED_STEP_HORIZONTAL_OVER_GRACE = 0.05D;
+    private static final double GROUNDED_STEP_HORIZONTAL_MOVE_GRACE = 0.75D;
+    private static final double GROUNDED_STEP_VERTICAL_MOVE_GRACE = 0.52D;
     private static final double GROUNDED_SETBACK_HORIZONTAL_GRACE = 0.10D;
     private static final double GROUNDED_SETBACK_MOVE_GRACE = 0.13D;
     private static final double GROUNDED_MICRO_HORIZONTAL_GRACE = 0.01D;
@@ -134,7 +142,7 @@ public class SurvivalFly extends Check {
     private static final double WATER_BOB_OVER_GRACE = Magic.LIQUID_SPEED_GAIN + 0.035D;
     private static final double WATER_SETBACK_VERTICAL_GRACE = 0.42D;
     private static final double WATER_SETBACK_OVER_GRACE = 0.72D;
-    private static final double WATER_DESCEND_GRACE = 0.30D;
+    private static final double WATER_DESCEND_GRACE = 0.45D;
     private static final double WATER_DESCEND_OVER_GRACE = 0.12D;
     private static final double WATER_RESET_OVER_GRACE = 0.20D;
     private static final double CLIMBABLE_HORIZONTAL_OVER_GRACE = 0.03D;
@@ -164,20 +172,31 @@ public class SurvivalFly extends Check {
     private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_AMOUNT_GRACE = 0.35D;
     private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE = 0.12D;
     private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_MOVE_GRACE = 0.45D;
+    private static final double GLIDING_VERTICAL_SMALL_MISS_GRACE = 0.25D;
+    private static final double GLIDING_VERTICAL_SMALL_MISS_MOVE_GRACE = 1.85D;
     private static final double GLIDING_FIREWORK_VERTICAL_OVER_GRACE = 0.90D;
-    private static final double GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE = 0.15D;
+    private static final double GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE = 0.70D;
     private static final double GLIDING_FIREWORK_MOVE_GRACE = 2.25D;
     /*
-     * Wearing an elytra is not the same as actively gliding. These handle launch
-     * and velocity transition packets before Bukkit reports normal gliding state.
+     * False-positive tuning: wearing an elytra is not the same as actively
+     * gliding. These handle launch and velocity transition packets before Bukkit
+     * reports normal gliding state.
      */
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_OVER_GRACE = 0.70D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_FOLLOWUP_OVER_GRACE = 0.12D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_HORIZONTAL_OVER_GRACE = 0.35D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_MOVE_GRACE = 0.85D;
     private static final double ELYTRA_EQUIPPED_VERTICAL_VELOCITY_Y_GRACE = 0.70D;
+    private static final double ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_OVER_GRACE = 0.90D;
+    private static final double ELYTRA_EQUIPPED_FIREWORK_VERTICAL_OVER_GRACE = 0.30D;
+    private static final double ELYTRA_EQUIPPED_FIREWORK_MOVE_GRACE = 1.35D;
+    private static final double ELYTRA_EQUIPPED_FIREWORK_Y_GRACE = 0.55D;
+    private static final double ELYTRA_EQUIPPED_QUEUED_VELOCITY_HORIZONTAL_OVER_GRACE = 0.85D;
+    private static final double ELYTRA_EQUIPPED_QUEUED_VELOCITY_MOVE_GRACE = 1.35D;
+    private static final double ELYTRA_EQUIPPED_QUEUED_VELOCITY_Y_GRACE = 0.50D;
     private static final double ELYTRA_EQUIPPED_GROUND_HORIZONTAL_OVER_GRACE = 0.25D;
     private static final double ELYTRA_EQUIPPED_GROUND_MOVE_GRACE = 0.65D;
+    private static final double ELYTRA_EQUIPPED_GROUND_STEP_VERTICAL_GRACE = 0.52D;
     private static final double ELYTRA_LIFTOFF_VERTICAL_OVER_GRACE = 0.095D;
     private static final double ELYTRA_LIFTOFF_MAX_ASCEND = 0.44D;
     private static final double ELYTRA_LIFTOFF_LAST_Y_GRACE = 0.02D;
@@ -191,6 +210,11 @@ public class SurvivalFly extends Check {
     private static final double SETBACK_GRAVITY_VERTICAL_GRACE = 0.18D;
     private static final double SETBACK_GRAVITY_OVER_GRACE = 0.18D;
     private static final double SETBACK_GRAVITY_SETBACK_Y_GRACE = 0.04D;
+    private static final double CURRENT_SERVER_VELOCITY_VERTICAL_OVER_GRACE = 2.00D;
+    private static final double CURRENT_SERVER_VELOCITY_VERTICAL_MATCH_GRACE = 0.25D;
+    private static final double CURRENT_SERVER_VELOCITY_HORIZONTAL_OVER_GRACE = 0.05D;
+    private static final double WATER_TAG_VERTICAL_OVER_GRACE = 0.16D;
+    private static final double WATER_TAG_HORIZONTAL_OVER_GRACE = 0.06D;
     private static final double CURRENT_VELOCITY_PERPENDICULAR_GRACE = 0.05D;
     private static final double CURRENT_VELOCITY_AMOUNT_GRACE = 0.04D;
     
@@ -311,7 +335,7 @@ public class SurvivalFly extends Check {
             hFreedom = 0.0;
         }
         hDistanceAboveLimit = applyBedrockHorizontalPredictionLeniency(player, pData, hDistanceAboveLimit);
-        hDistanceAboveLimit = applyNewerClientHorizontalPredictionLeniency(pData, thisMove, hDistanceAboveLimit);
+        hDistanceAboveLimit = applyNewerClientHorizontalPredictionLeniency(pData, from, to, thisMove, hDistanceAboveLimit);
 
 
         /////////////////////////////////////
@@ -934,19 +958,67 @@ public class SurvivalFly extends Check {
     }
 
     private double applyNewerClientHorizontalPredictionLeniency(final IPlayerData pData,
+                                                               final PlayerLocation from, final PlayerLocation to,
                                                                final PlayerMoveData thisMove,
                                                                final double hDistanceAboveLimit) {
-        if (hDistanceAboveLimit > 0.0
-                && pData.getClientVersion() == ClientVersion.HIGHER_THAN_KNOWN_VERSIONS
-                && hDistanceAboveLimit <= NEWER_CLIENT_HORIZONTAL_OVER_GRACE
-                && thisMove.hDistance <= NEWER_CLIENT_HORIZONTAL_MOVE_GRACE) {
-            thisMove.xAllowedDistance = thisMove.xDistance;
-            thisMove.zAllowedDistance = thisMove.zDistance;
-            thisMove.hAllowedDistance = thisMove.hDistance;
-            tags.add("newer_client_hdistrel");
-            return 0.0;
+        if (hDistanceAboveLimit <= 0.0 || pData.getClientVersion() != ClientVersion.HIGHER_THAN_KNOWN_VERSIONS) {
+            return hDistanceAboveLimit;
         }
-        return hDistanceAboveLimit;
+        final boolean ordinaryPredictionMiss = hDistanceAboveLimit <= NEWER_CLIENT_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= NEWER_CLIENT_HORIZONTAL_MOVE_GRACE;
+        final boolean groundedPredictionMiss = isNewerClientGroundedPredictionMiss(from, to, thisMove, hDistanceAboveLimit);
+        final boolean stepPredictionMiss = isNewerClientStepPredictionMiss(from, to, thisMove, hDistanceAboveLimit);
+        final boolean jumpPredictionMiss = isNewerClientJumpPredictionMiss(from, to, thisMove, hDistanceAboveLimit);
+        if (!ordinaryPredictionMiss && !groundedPredictionMiss && !stepPredictionMiss && !jumpPredictionMiss) {
+            return hDistanceAboveLimit;
+        }
+        thisMove.xAllowedDistance = thisMove.xDistance;
+        thisMove.zAllowedDistance = thisMove.zDistance;
+        thisMove.hAllowedDistance = thisMove.hDistance;
+        tags.add(jumpPredictionMiss ? "newer_client_jump_hdistrel"
+                : stepPredictionMiss ? "newer_client_step_hdistrel"
+                : groundedPredictionMiss ? "newer_client_ground_hdistrel" : "newer_client_hdistrel");
+        return 0.0;
+    }
+
+    private boolean isNewerClientGroundedPredictionMiss(final PlayerLocation from, final PlayerLocation to,
+                                                        final PlayerMoveData thisMove,
+                                                        final double hDistanceAboveLimit) {
+        // False-positive tuning: modern clients can miss the ground model by tiny amounts while sprinting/turning.
+        return isGroundishStepMove(from, to, thisMove)
+                && Math.abs(thisMove.yDistance) <= Magic.PREDICTION_EPSILON
+                && hDistanceAboveLimit <= GROUNDED_MICRO_OVER_GRACE
+                && thisMove.hDistance <= GROUNDED_MICRO_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isNewerClientStepPredictionMiss(final PlayerLocation from, final PlayerLocation to,
+                                                    final PlayerMoveData thisMove,
+                                                    final double hDistanceAboveLimit) {
+        // False-positive tuning: stair/slab step packets can carry modern-client horizontal drift.
+        return isGroundishStepMove(from, to, thisMove)
+                && isStepBlockNear(from, to)
+                && thisMove.yDistance >= -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= GROUNDED_STEP_VERTICAL_MOVE_GRACE
+                && hDistanceAboveLimit <= GROUNDED_STEP_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= GROUNDED_STEP_HORIZONTAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isNewerClientJumpPredictionMiss(final PlayerLocation from, final PlayerLocation to,
+                                                    final PlayerMoveData thisMove,
+                                                    final double hDistanceAboveLimit) {
+        // False-positive tuning: jump-start/bunnyhop packets keep normal sprint carry for one grounded transition.
+        return (tags.contains("jump_env") || tags.contains("bunnyhop"))
+                && isGroundishStepMove(from, to, thisMove)
+                && thisMove.yDistance >= -Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= GROUNDED_JUMP_VERTICAL_MOVE_GRACE
+                && hDistanceAboveLimit <= GROUNDED_JUMP_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= GROUNDED_JUMP_HORIZONTAL_MOVE_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
     }
 
     private double applyGroundedRecoveryHorizontalLeniency(final PlayerLocation from, final PlayerLocation to,
@@ -993,6 +1065,27 @@ public class SurvivalFly extends Check {
             return hDistanceAboveLimit;
         }
         // These branches run after the normal model misses; each one stays narrow and tags the reason for diagnostics.
+        if (isGlidingFireworkHorizontalGrace(player, data, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("glide_firework_horizontal_grace");
+            return 0.0;
+        }
+        if (isElytraEquippedFireworkHorizontalGrace(player, data, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("elytra_equipped_firework_horizontal_grace");
+            return 0.0;
+        }
+        if (isElytraEquippedQueuedVelocityHorizontalGrace(player, data, from, to, thisMove, hDistanceAboveLimit)) {
+            thisMove.xAllowedDistance = thisMove.xDistance;
+            thisMove.zAllowedDistance = thisMove.zDistance;
+            thisMove.hAllowedDistance = thisMove.hDistance;
+            tags.add("elytra_equipped_queued_velocity_horizontal_grace");
+            return 0.0;
+        }
         if (isElytraEquippedVelocityHorizontalGrace(player, from, to, thisMove, lastMove, hDistanceAboveLimit)) {
             thisMove.xAllowedDistance = thisMove.xDistance;
             thisMove.zAllowedDistance = thisMove.zDistance;
@@ -1073,10 +1166,54 @@ public class SurvivalFly extends Check {
         return hDistanceAboveLimit;
     }
 
+    private boolean isGlidingFireworkHorizontalGrace(final Player player, final MovingData data,
+                                                     final PlayerMoveData thisMove,
+                                                     final double hDistanceAboveLimit) {
+        // False-positive tuning: firework packets can briefly outrun the glide model while the server velocity catches up.
+        return Bridge1_9.isGliding(player)
+                && data.fireworksBoostDuration > 0
+                && tags.contains("glide_firework_active")
+                && tags.contains("glide_horizontal_prediction_miss")
+                && hDistanceAboveLimit <= GLIDING_FIREWORK_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= GLIDING_FIREWORK_MOVE_GRACE
+                && Math.abs(thisMove.yDistance) <= GLIDING_FIREWORK_VERTICAL_OVER_GRACE;
+    }
+
+    private boolean isElytraEquippedFireworkHorizontalGrace(final Player player, final MovingData data,
+                                                            final PlayerLocation from, final PlayerLocation to,
+                                                            final PlayerMoveData thisMove,
+                                                            final double hDistanceAboveLimit) {
+        // False-positive tuning: Bukkit can drop gliding state while the firework boost is still active.
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && data.fireworksBoostDuration > 0
+                && hDistanceAboveLimit <= ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_EQUIPPED_FIREWORK_MOVE_GRACE
+                && Math.abs(thisMove.yDistance) <= ELYTRA_EQUIPPED_FIREWORK_Y_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
+    private boolean isElytraEquippedQueuedVelocityHorizontalGrace(final Player player, final MovingData data,
+                                                                  final PlayerLocation from, final PlayerLocation to,
+                                                                  final PlayerMoveData thisMove,
+                                                                  final double hDistanceAboveLimit) {
+        // False-positive tuning: launch/combat velocity can be queued while elytra is worn but gliding is not active yet.
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && (data.getHorizontalVelocityTracker().hasQueued() || !thisMove.verVelUsed.isEmpty())
+                && hDistanceAboveLimit <= ELYTRA_EQUIPPED_QUEUED_VELOCITY_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_EQUIPPED_QUEUED_VELOCITY_MOVE_GRACE
+                && Math.abs(thisMove.yDistance) <= ELYTRA_EQUIPPED_QUEUED_VELOCITY_Y_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
     private boolean isBedrockGroundedCombatHorizontalGrace(final Player player, final IPlayerData pData,
                                                            final PlayerLocation from, final PlayerLocation to,
                                                            final PlayerMoveData thisMove,
                                                            final double hDistanceAboveLimit) {
+        // Bedrock compatibility: combat knockback packets can look like short grounded speed spikes.
         if (!isBedrockPlayer(player, pData)
                 || Bridge1_9.isGliding(player)
                 || hDistanceAboveLimit > BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE
@@ -1131,7 +1268,7 @@ public class SurvivalFly extends Check {
                                                  final PlayerLocation from, final PlayerLocation to,
                                                  final PlayerMoveData thisMove,
                                                  final double hDistanceAboveLimit) {
-        // Bedrock step packets can report the expected 0.5 block rise with more horizontal carry than Java predicts.
+        // Bedrock compatibility: step packets can report a 0.5 block rise with more horizontal carry than Java predicts.
         if (!isBedrockPlayer(player, pData)
                 || Bridge1_9.isGliding(player)
                 || hDistanceAboveLimit > BEDROCK_STEP_HORIZONTAL_OVER_GRACE
@@ -1181,7 +1318,7 @@ public class SurvivalFly extends Check {
                                                  final PlayerLocation from, final PlayerLocation to,
                                                  final PlayerMoveData thisMove,
                                                  final double hDistanceAboveLimit) {
-        // Thin supports can keep a player valid while the surrounding movement model still looks like air.
+        // False-positive tuning: thin supports can be valid while the surrounding movement model still looks like air.
         return !Bridge1_9.isGliding(player)
                 && isThinSupportNear(from, to)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1196,6 +1333,7 @@ public class SurvivalFly extends Check {
     private boolean isWaterHorizontalGrace(final PlayerLocation from, final PlayerLocation to,
                                            final PlayerMoveData thisMove,
                                            final double hDistanceAboveLimit) {
+        // False-positive tuning: swimming/water-edge moves can exceed the dry-ground horizontal model.
         final boolean inWater = from.isInWater() || to.isInWater()
                 || thisMove.from.inWater || thisMove.to.inWater;
         return inWater
@@ -1206,6 +1344,7 @@ public class SurvivalFly extends Check {
     private boolean isClimbableHorizontalGrace(final PlayerLocation from, final PlayerLocation to,
                                                final PlayerMoveData thisMove,
                                                final double hDistanceAboveLimit) {
+        // False-positive tuning: vines, ladders, and scaffolding have separate drag from normal air moves.
         final boolean climbable = from.isOnClimbable() || to.isOnClimbable()
                 || thisMove.from.onClimbable || thisMove.to.onClimbable;
         return climbable
@@ -1228,11 +1367,11 @@ public class SurvivalFly extends Check {
                                                           final PlayerLocation from, final PlayerLocation to,
                                                           final PlayerMoveData thisMove,
                                                           final double hDistanceAboveLimit) {
-        // Elytra-equipped players can briefly slide/launch on the ground before gliding is active.
+        // False-positive tuning: elytra-equipped players can step/slide before gliding is active.
         return Bridge1_9.isWearingElytra(player)
                 && !Bridge1_9.isGliding(player)
                 && isGroundishStepMove(from, to, thisMove)
-                && Math.abs(thisMove.yDistance) <= Magic.PREDICTION_EPSILON
+                && Math.abs(thisMove.yDistance) <= ELYTRA_EQUIPPED_GROUND_STEP_VERTICAL_GRACE
                 && hDistanceAboveLimit <= ELYTRA_EQUIPPED_GROUND_HORIZONTAL_OVER_GRACE
                 && thisMove.hDistance <= ELYTRA_EQUIPPED_GROUND_MOVE_GRACE
                 && !from.isInLiquid() && !to.isInLiquid()
@@ -1295,14 +1434,34 @@ public class SurvivalFly extends Check {
             tags.add("thin_support_vertical_grace");
             return 0.0;
         }
+        if (isElytraEquippedFireworkVerticalGrace(player, data, from, to, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("elytra_equipped_firework_vertical_grace");
+            return 0.0;
+        }
         if (isElytraEquippedVerticalVelocityGrace(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
             thisMove.yAllowedDistance = thisMove.yDistance;
             tags.add("elytra_equipped_vertical_velocity_grace");
             return 0.0;
         }
+        if (isCurrentServerVelocityVerticalGrace(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("current_server_velocity_vertical_grace");
+            return 0.0;
+        }
+        if (isWaterTagVerticalGrace(yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("water_tag_vertical_grace");
+            return 0.0;
+        }
         if (isGlidingFireworkVerticalGrace(player, data, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
             thisMove.yAllowedDistance = thisMove.yDistance;
             tags.add("glide_firework_vertical_grace");
+            return 0.0;
+        }
+        if (isGlidingSmallVerticalPredictionGrace(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            tags.add("glide_small_vertical_prediction_grace");
             return 0.0;
         }
         if (isGlidingVerticalPrecisionGrace(player, yDistanceAboveLimit)) {
@@ -1396,10 +1555,46 @@ public class SurvivalFly extends Check {
                 && (tags.contains("hvel_current") || tags.contains("hvel"));
     }
 
+    private boolean isCurrentServerVelocityVerticalGrace(final Player player,
+                                                         final PlayerMoveData thisMove,
+                                                         final double yDistanceAboveLimit,
+                                                         final double hDistanceAboveLimit) {
+        // False-positive tuning: normal falls/knockback can be modeled late but still match the server velocity.
+        return yDistanceAboveLimit <= CURRENT_SERVER_VELOCITY_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= CURRENT_SERVER_VELOCITY_HORIZONTAL_OVER_GRACE
+                && Math.abs(thisMove.yDistance - player.getVelocity().getY()) <= CURRENT_SERVER_VELOCITY_VERTICAL_MATCH_GRACE;
+    }
+
+    private boolean isWaterTagVerticalGrace(final double yDistanceAboveLimit,
+                                            final double hDistanceAboveLimit) {
+        // False-positive tuning: v_water tags can persist one packet after the sampled locations read as air.
+        return tags.contains("v_water")
+                && yDistanceAboveLimit <= WATER_TAG_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= WATER_TAG_HORIZONTAL_OVER_GRACE;
+    }
+
+    private boolean isElytraEquippedFireworkVerticalGrace(final Player player, final MovingData data,
+                                                          final PlayerLocation from, final PlayerLocation to,
+                                                          final PlayerMoveData thisMove,
+                                                          final double yDistanceAboveLimit,
+                                                          final double hDistanceAboveLimit) {
+        // False-positive tuning: the firework boost may persist one or more packets after gliding state flickers off.
+        return Bridge1_9.isWearingElytra(player)
+                && !Bridge1_9.isGliding(player)
+                && data.fireworksBoostDuration > 0
+                && yDistanceAboveLimit <= ELYTRA_EQUIPPED_FIREWORK_VERTICAL_OVER_GRACE
+                && hDistanceAboveLimit <= ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_OVER_GRACE
+                && thisMove.hDistance <= ELYTRA_EQUIPPED_FIREWORK_MOVE_GRACE
+                && Math.abs(thisMove.yDistance) <= ELYTRA_EQUIPPED_FIREWORK_Y_GRACE
+                && !from.isInLiquid() && !to.isInLiquid()
+                && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
+    }
+
     private boolean isGlidingFireworkVerticalGrace(final Player player, final MovingData data,
                                                    final PlayerMoveData thisMove,
                                                    final double yDistanceAboveLimit,
                                                    final double hDistanceAboveLimit) {
+        // False-positive tuning: firework glide vectors can be right overall while one axis is modeled a tick late.
         if (!Bridge1_9.isGliding(player)
                 || data.fireworksBoostDuration <= 0
                 || yDistanceAboveLimit > GLIDING_FIREWORK_VERTICAL_OVER_GRACE
@@ -1409,10 +1604,25 @@ public class SurvivalFly extends Check {
             return false;
         }
         final boolean verticalModelMiss = tags.contains("glide_firework_vertical_model_high")
-                || tags.contains("glide_firework_vertical_model_low");
+                || tags.contains("glide_firework_vertical_model_low")
+                || tags.contains("glide_vertical_actual_above_model")
+                || tags.contains("glide_vertical_actual_below_model");
         final boolean saneMoveSize = thisMove.hDistance <= GLIDING_FIREWORK_MOVE_GRACE
                 || thisMove.hDistance <= Magic.NEGLIGIBLE_SPEED_THRESHOLD;
         return verticalModelMiss && saneMoveSize;
+    }
+
+    private boolean isGlidingSmallVerticalPredictionGrace(final Player player,
+                                                          final PlayerMoveData thisMove,
+                                                          final double yDistanceAboveLimit,
+                                                          final double hDistanceAboveLimit) {
+        // False-positive tuning: normal elytra glides often miss the vertical curve by a few centimeters only.
+        return Bridge1_9.isGliding(player)
+                && tags.contains("glide_vertical_prediction_miss")
+                && yDistanceAboveLimit <= GLIDING_VERTICAL_SMALL_MISS_GRACE
+                && thisMove.hDistance <= GLIDING_VERTICAL_SMALL_MISS_MOVE_GRACE
+                && (hDistanceAboveLimit <= GLIDING_HORIZONTAL_PRECISION_GRACE
+                        || tags.contains("glide_current_velocity_horizontal_grace"));
     }
 
     private boolean isElytraEquippedVerticalVelocityGrace(final Player player,
@@ -1429,7 +1639,7 @@ public class SurvivalFly extends Check {
                                                  final double yDistanceAboveLimit,
                                                  final double hDistanceAboveLimit,
                                                  final boolean checkVerticalLimit) {
-        // Firework/launch transitions can apply upward velocity before the player is formally in gliding state.
+        // False-positive tuning: launch transitions can apply upward velocity before the player is formally gliding.
         if (!Bridge1_9.isWearingElytra(player)
                 || Bridge1_9.isGliding(player)
                 || thisMove.yDistance <= 0.0D
@@ -1462,6 +1672,7 @@ public class SurvivalFly extends Check {
                                                          final PlayerMoveData thisMove,
                                                          final double yDistanceAboveLimit,
                                                          final double hDistanceAboveLimit) {
+        // Bedrock compatibility: combat knockback can also show up as a small vertical model miss.
         return isBedrockPlayer(player, pData)
                 && !Bridge1_9.isGliding(player)
                 && yDistanceAboveLimit <= BEDROCK_GROUNDED_COMBAT_VERTICAL_OVER_GRACE
@@ -1478,7 +1689,7 @@ public class SurvivalFly extends Check {
                                                    final PlayerMoveData thisMove,
                                                    final double yDistanceAboveLimit,
                                                    final double hDistanceAboveLimit) {
-        // Mirrors the horizontal Bedrock step grace for the vertical violation path.
+        // Bedrock compatibility: mirror the horizontal step grace for the vertical violation path.
         final boolean groundish = from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
                 || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond
                 || thisMove.touchedGround || thisMove.touchedGroundWorkaround
@@ -1499,7 +1710,7 @@ public class SurvivalFly extends Check {
                                                          final PlayerMoveData thisMove,
                                                          final double yDistanceAboveLimit,
                                                          final double hDistanceAboveLimit) {
-        // Bedrock sometimes sends the horizontal step packet before the matching 0.5 block Y delta.
+        // Bedrock compatibility: horizontal step packets can arrive before the matching 0.5 block Y delta.
         return isBedrockPlayer(player, pData)
                 && !Bridge1_9.isGliding(player)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1538,7 +1749,7 @@ public class SurvivalFly extends Check {
                                                final PlayerMoveData thisMove,
                                                final double yDistanceAboveLimit,
                                                final double hDistanceAboveLimit) {
-        // Prevent lantern/trapdoor/carpet support from becoming a vertical setback loop.
+        // False-positive tuning: prevent lantern/trapdoor/carpet support from becoming a vertical setback loop.
         return !Bridge1_9.isGliding(player)
                 && isThinSupportNear(from, to)
                 && isGroundishStepMove(from, to, thisMove)
@@ -1611,6 +1822,7 @@ public class SurvivalFly extends Check {
                                              final PlayerMoveData thisMove,
                                              final double yDistanceAboveLimit,
                                              final double hDistanceAboveLimit) {
+        // False-positive tuning: climbing blocks use a different vertical envelope from open air.
         final boolean climbable = from.isOnClimbable() || to.isOnClimbable()
                 || thisMove.from.onClimbable || thisMove.to.onClimbable;
         if (!climbable || from.isInLiquid() || to.isInLiquid()
@@ -1631,6 +1843,7 @@ public class SurvivalFly extends Check {
                                          final double yDistanceAboveLimit,
                                          final double hDistanceAboveLimit,
                                          final boolean resetFrom, final boolean resetTo) {
+        // False-positive tuning: water bobbing and descent packets regularly miss the dry-air vertical model.
         final boolean inWater = from.isInWater() || to.isInWater()
                 || thisMove.from.inWater || thisMove.to.inWater;
         if (!inWater || hDistanceAboveLimit > WATER_HORIZONTAL_OVER_GRACE

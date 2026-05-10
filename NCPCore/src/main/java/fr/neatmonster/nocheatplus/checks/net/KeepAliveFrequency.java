@@ -63,9 +63,10 @@ public class KeepAliveFrequency extends Check {
     }
 
     private boolean isBucketBoundaryGrace(final NetData data, final float fullScore, final float first) {
-        return first <= 2f
-                && data.keepAlivePacketDelta >= 750L
-                && fullScore <= data.keepAliveFreq.numberOfBuckets() + 1f
+        // False-positive tuning: Folia/modern client timing can put two legitimate replies in the first bucket.
+        return first <= 3f
+                && data.keepAlivePacketDelta >= 250L
+                && fullScore <= data.keepAliveFreq.numberOfBuckets() + 2f
                 && !data.keepAliveDuplicateId;
     }
 

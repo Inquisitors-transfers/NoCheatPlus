@@ -329,6 +329,11 @@ public class NetData extends ACheckData {
             && matchesPosition(lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, knownLocation);
     }
 
+    public boolean consumeExpectedOutgoingPosition(final DataPacketFlying packetData) {
+        // Folia/respawn compatibility: the move can arrive before the outgoing teleport packet is recorded.
+        return teleportQueue.consumeExpectedOutgoingPosition(packetData);
+    }
+
     public boolean isWithinServerPositionJumpGrace(final long now, final Location knownLocation, final Location packetLocation) {
         return lastServerPositionJumpTime > 0L
             && now >= lastServerPositionJumpTime
@@ -544,7 +549,7 @@ public class NetData extends ACheckData {
         final Location knownLocation = player.getLocation();
         final MovingData mData = pData.getGenericInstance(MovingData.class);
         Object task = null;
-        // Packet-level set backs must run on the player's owning region on Folia.
+        // Folia compatibility: packet-level set backs must run on the player's owning region.
         task = SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
             /** Get the first set-back location that might be available */
             final Location newTo = mData.hasSetBack() ? mData.getSetBack(knownLocation) :

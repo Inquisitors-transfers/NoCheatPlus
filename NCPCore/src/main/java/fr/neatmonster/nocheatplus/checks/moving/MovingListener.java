@@ -418,7 +418,8 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         final IPlayerData pData = DataManager.getPlayerData(player);
         final MovingData data = pData.getGenericInstance(MovingData.class);
         data.clearMostMovingCheckData();
-        data.setSetBack(player.getLocation(useDeathLoc)); 
+        // False-positive tuning: do not keep the death location as a valid movement setback for respawn packets.
+        data.resetSetBack();
         if (pData.isDebugActive(checkType)) debug(player, "Death: " + player.getLocation(useDeathLoc));
         useDeathLoc.setWorld(null);
     }
@@ -574,8 +575,9 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         boolean skipExtras = false; // Skip extra data adjustments during special teleport, e.g. vehicle set back.
         // Detect our own vehicle set backs (...).
         if (data.isVehicleSetBack) {
-            // Uncertain if this is vehicle leave or vehicle enter.
-            if (event.getCause() != BridgeMisc.TELEPORT_CAUSE_CORRECTION_OF_POSITION) {
+            // Folia/false-positive tuning: vehicle corrections can surface as DISMOUNT teleports on modern servers.
+            if (event.getCause() != BridgeMisc.TELEPORT_CAUSE_CORRECTION_OF_POSITION
+                    && event.getCause() != TeleportCause.DISMOUNT) {
                 // TODO: Unexpected, what now?
                 NCPAPIProvider.getNoCheatPlusAPI().getLogManager().warning(Streams.STATUS, CheckUtils.getLogMessagePrefix(player, CheckType.MOVING_VEHICLE) + "Unexpected teleport cause on vehicle set back: " + event.getCause());
             }

@@ -86,6 +86,12 @@ public class Moving extends Check {
             final MovingData mData = pData.getGenericInstance(MovingData.class);
             /** Actual Location on the server */
             final Location knownLocation = player.getLocation(useLoc);
+            if (knownLocation == null || knownLocation.getWorld() == null) {
+                // Folia compatibility: a disconnecting player can leave the reusable Location without a world.
+                tags.add("known_world_null_grace");
+                useLoc.setWorld(null);
+                return false;
+            }
             data.recordMovingKnownLocation(knownLocation, now);
             /** Claimed Location sent by the client */
             final Location packetLocation = new Location(null, packetData.getX(), packetData.getY(), packetData.getZ());
@@ -99,12 +105,16 @@ public class Moving extends Check {
             final boolean outgoingPositionGrace = data.isWithinOutgoingPositionGrace(now, knownLocation);
             final boolean serverPositionJumpGrace = data.isWithinServerPositionJumpGrace(now, knownLocation, packetLocation);
             final boolean teleportCommandGrace = data.isWithinTeleportCommandGrace(now, knownLocation, packetLocation);
-            if (extremeMove && (teleportGrace || outgoingPositionGrace || serverPositionJumpGrace || teleportCommandGrace)) {
+            final boolean expectedOutgoingPositionGrace = extremeMove && data.consumeExpectedOutgoingPosition(packetData);
+            if (extremeMove && (teleportGrace || outgoingPositionGrace || expectedOutgoingPositionGrace || serverPositionJumpGrace || teleportCommandGrace)) {
                 if (teleportGrace) {
                     tags.add("teleport_grace");
                 }
                 if (outgoingPositionGrace) {
                     tags.add("outgoing_position_grace");
+                }
+                if (expectedOutgoingPositionGrace) {
+                    tags.add("expected_outgoing_position_grace");
                 }
                 if (serverPositionJumpGrace) {
                     tags.add("server_position_jump_grace");

@@ -27,7 +27,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
 
-import fr.neatmonster.nocheatplus.NCPAPIProvider;
 import fr.neatmonster.nocheatplus.actions.ParameterName;
 import fr.neatmonster.nocheatplus.checks.Check;
 import fr.neatmonster.nocheatplus.checks.CheckType;
@@ -44,7 +43,6 @@ import fr.neatmonster.nocheatplus.checks.moving.model.VehicleMoveInfo;
 import fr.neatmonster.nocheatplus.checks.workaround.WRPT;
 import fr.neatmonster.nocheatplus.compat.Bridge1_13;
 import fr.neatmonster.nocheatplus.compat.Bridge1_9;
-import fr.neatmonster.nocheatplus.logging.Streams;
 import fr.neatmonster.nocheatplus.players.IPlayerData;
 import fr.neatmonster.nocheatplus.utilities.CheckUtils;
 import fr.neatmonster.nocheatplus.utilities.ReflectionUtil;
@@ -230,7 +228,8 @@ public class VehicleEnvelope extends Check {
                 .append(" config=vehicleEnvelopeVL:").append(StringUtil.fdec3.format(data.vehicleEnvelopeVL))
                 .append(",boatIceTicks:").append(data.boatIceVelocityTicks)
                 .append(",actions:").append(cc.vehicleEnvelopeActions);
-        NCPAPIProvider.getNoCheatPlusAPI().getLogManager().debug(Streams.TRACE_FILE, builder.toString());
+        // Diagnostic logging: mirror vehicle details to console so boat false positives can be matched to exact terrain.
+        player.getServer().getLogger().info(builder.toString());
     }
 
     private String formatLocation(final LocationData location) {
@@ -350,7 +349,8 @@ public class VehicleEnvelope extends Check {
 
         if ((thisMove.from.onGround && !thisMove.from.inWater) 
             || thisMove.to.onGround && !thisMove.to.inWater) {
-            return multiplier * 0.4;
+            // False-positive tuning: boats crossing shore/ground blocks on Folia can exceed the old 0.4 cap.
+            return multiplier * 0.75;
         }
 
         if (thisMove.from.inWater || thisMove.to.inWater) {

@@ -274,6 +274,23 @@ public class TeleportQueue {
     }
 
     /**
+     * Accept a movement packet that matches the teleport location from a Bukkit
+     * event before ProtocolLib has observed the matching outgoing position.
+     */
+    public boolean consumeExpectedOutgoingPosition(final DataPacketFlying packetData) {
+        if (packetData == null || !packetData.hasPos) {
+            return false;
+        }
+        lock.lock();
+        final boolean match = expectOutgoing != null && expectOutgoing.isSamePos(packetData);
+        if (match) {
+            expectOutgoing = null;
+        }
+        lock.unlock();
+        return match;
+    }
+
+    /**
      * Test if the move is an ACK move (or no ACK is expected), adjust internals
      * if necessary.
      * 

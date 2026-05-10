@@ -180,7 +180,7 @@ public class UseEntityAdapter extends BaseAdapter {
                         packetInterpreted = true;
                         isAttack = actions.read(0) == EntityUseAction.ATTACK;
                     }
-                    // Modern ProtocolLib snapshots can throw while initializing enum wrappers.
+                    // ProtocolLib compatibility: modern snapshots can throw while initializing enum wrappers.
                     if (!packetInterpreted && isServerAtLeast1_13) {
                         final StructureModifier<WrappedEnumEntityUseAction> enumActions = packet.getEnumEntityUseActions();
                         if (enumActions.size() == 1 && enumActions.read(0).equals(WrappedEnumEntityUseAction.attack())) {
@@ -200,8 +200,9 @@ public class UseEntityAdapter extends BaseAdapter {
                 protocolLibEntityUseActionBroken = true;
                 if (!protocolLibEntityUseActionWarningLogged) {
                     protocolLibEntityUseActionWarningLogged = true;
+                    // Diagnostic logging: name the failing branch so attack/combat packet issues are clear in console.
                     StaticLog.logWarning("ProtocolLib could not expose USE_ENTITY action data (branch=enumEntityUseActions, packet=" + packet.getType() + "). Skipping AttackFrequency interpretation for USE_ENTITY packets until restart.");
-                    StaticLog.logWarning(e);
+                    StaticLog.logWarning("ProtocolLib USE_ENTITY action failure: " + e.getClass().getName() + ": " + e.getMessage());
                 }
                 return;
             }

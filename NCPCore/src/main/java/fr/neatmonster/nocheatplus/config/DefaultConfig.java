@@ -124,7 +124,8 @@ public class DefaultConfig extends ConfigFile {
         set(ConfPaths.BLOCKBREAK_FASTBREAK_STRICT, true, 154);
         set(ConfPaths.BLOCKBREAK_FASTBREAK_DELAY, 10, 154); 
         set(ConfPaths.BLOCKBREAK_FASTBREAK_MOD_SURVIVAL, 100, 154);
-        set(ConfPaths.BLOCKBREAK_FASTBREAK_GRACE, 500, 154);
+        // False-positive tuning: modern/Folia block-dig timing can need a larger grace, but keep it configurable.
+        set(ConfPaths.BLOCKBREAK_FASTBREAK_GRACE, 2000, 154);
         set(ConfPaths.BLOCKBREAK_FASTBREAK_ACTIONS, "cancel vl>5 cancel log:fastbreak:4:2:i vl>50 cancel log:fastbreak:0:2:if cmdc:kickfastbreak:2:5", 154);
         // Frequency
         set(ConfPaths.BLOCKBREAK_FREQUENCY_CHECK, "default", 154);

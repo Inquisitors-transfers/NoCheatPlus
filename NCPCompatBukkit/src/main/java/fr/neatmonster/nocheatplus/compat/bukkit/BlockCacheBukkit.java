@@ -14,6 +14,10 @@
  */
 package fr.neatmonster.nocheatplus.compat.bukkit;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -22,12 +26,18 @@ import org.bukkit.entity.EntityType;
 
 import fr.neatmonster.nocheatplus.compat.Bridge1_13;
 import fr.neatmonster.nocheatplus.compat.SchedulerHelper;
+import fr.neatmonster.nocheatplus.utilities.CheckUtils;
 import fr.neatmonster.nocheatplus.utilities.map.BlockCache;
 import fr.neatmonster.nocheatplus.utilities.map.BlockFlags;
 import fr.neatmonster.nocheatplus.utilities.map.BlockProperties;
 import fr.neatmonster.nocheatplus.utilities.map.MaterialUtil;
 
 public class BlockCacheBukkit extends BlockCache {
+
+    private static final long FOLIA_FALLBACK_LOG_INTERVAL_MS = 10000L;
+    private static final AtomicInteger foliaFallbackCount = new AtomicInteger();
+    private static final AtomicInteger foliaFallbackResolvedCount = new AtomicInteger();
+    private static final AtomicLong nextFoliaFallbackLog = new AtomicLong();
 
     protected World world;
 
@@ -51,20 +61,86 @@ public class BlockCacheBukkit extends BlockCache {
     @Override
     public Material fetchTypeId(final int x, final int y, final int z) {
         // TODO: consider setting type id and data at once.
-        if (world == null || !SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+        if (world == null) {
             return Material.AIR;
         }
-        return world.getBlockAt(x, y, z).getType();
+        if (SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+            return world.getBlockAt(x, y, z).getType();
+        }
+        final Material fallbackType = fetchTypeIdWithLocationFallback(x, y, z);
+        return fallbackType == null ? Material.AIR : fallbackType;
     }
 
     @SuppressWarnings("deprecation")
     @Override
     public int fetchData(final int x, final int y, final int z) {
         // TODO: consider setting type id and data at once.
-        if (world == null || !SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+        if (world == null) {
             return 0;
         }
-        return Bridge1_13.hasIsSwimming() ? 0 : world.getBlockAt(x, y, z).getData();
+        if (SchedulerHelper.isOwnedByCurrentRegion(world, x, z)) {
+            return Bridge1_13.hasIsSwimming() ? 0 : world.getBlockAt(x, y, z).getData();
+        }
+        final Integer fallbackData = fetchDataWithLocationFallback(x, y, z);
+        return fallbackData == null ? 0 : fallbackData.intValue();
+    }
+
+    private Material fetchTypeIdWithLocationFallback(final int x, final int y, final int z) {
+        // Folia compatibility: if the chunk-level ownership check cannot prove safety, retry the exact location.
+        // If that also fails, keep AIR as the safe final fallback instead of touching another region's block state.
+        boolean resolved = false;
+        try {
+            if (SchedulerHelper.isOwnedByCurrentRegion(new Location(world, x, y, z))) {
+                resolved = true;
+                return world.getBlockAt(x, y, z).getType();
+            }
+        }
+        catch (Throwable t) {
+            // Keep the final AIR fallback for servers that throw while checking ownership or block state.
+        }
+        finally {
+            logFoliaBlockFallback("type", resolved);
+        }
+        return null;
+    }
+
+    @SuppressWarnings("deprecation")
+    private Integer fetchDataWithLocationFallback(final int x, final int y, final int z) {
+        // Folia compatibility: retry exact-location ownership before returning legacy data 0 as the final fallback.
+        boolean resolved = false;
+        try {
+            if (SchedulerHelper.isOwnedByCurrentRegion(new Location(world, x, y, z))) {
+                resolved = true;
+                return Integer.valueOf(Bridge1_13.hasIsSwimming() ? 0 : world.getBlockAt(x, y, z).getData());
+            }
+        }
+        catch (Throwable t) {
+            // Keep the final data 0 fallback for servers that throw while checking ownership or block state.
+        }
+        finally {
+            logFoliaBlockFallback("data", resolved);
+        }
+        return null;
+    }
+
+    private static void logFoliaBlockFallback(final String kind, final boolean resolved) {
+        if (!CheckUtils.shouldLogDebugToConsole()) {
+            return;
+        }
+        final int count = foliaFallbackCount.incrementAndGet();
+        if (resolved) {
+            foliaFallbackResolvedCount.incrementAndGet();
+        }
+        final long now = System.currentTimeMillis();
+        final long next = nextFoliaFallbackLog.get();
+        if (now < next || !nextFoliaFallbackLog.compareAndSet(next, now + FOLIA_FALLBACK_LOG_INTERVAL_MS)) {
+            return;
+        }
+        final int resolvedCount = foliaFallbackResolvedCount.getAndSet(0);
+        final int periodCount = foliaFallbackCount.getAndSet(0);
+        Bukkit.getLogger().info("[NCP][Folia][BlockCache] normal " + kind + " block access failed; fallback used "
+                                + periodCount + " times in the last 10s, resolved=" + resolvedCount
+                                + ", finalSafeFallback=" + (periodCount - resolvedCount) + ".");
     }
 
     @Override

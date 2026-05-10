@@ -37,8 +37,6 @@ import fr.neatmonster.nocheatplus.utilities.map.BlockProperties;
  */
 public class FastBreak extends Check {
 
-    private static final float MODERN_SERVER_GRACE_MINIMUM = 2000.0F;
-
     /**
      * Instantiates a new fast break check.
      */
@@ -82,9 +80,7 @@ public class FastBreak extends Check {
                 // Add as penalty
                 data.fastBreakPenalties.add(now, (float) missingTime);
                 // Only raise a violation, if the total penalty score exceeds the contention duration (for lag, delay).
-                // False-positive tuning: Folia/modern block-dig timing can report small missing times for normal breaks.
-                final float effectiveGrace = Math.max((float) cc.fastBreakGrace, MODERN_SERVER_GRACE_MINIMUM);
-                if (data.fastBreakPenalties.score(cc.fastBreakBucketFactor) > effectiveGrace) {
+                if (data.fastBreakPenalties.score(cc.fastBreakBucketFactor) > cc.fastBreakGrace) {
                     // TODO: maybe add one absolute penalty time for big amounts to stop breaking until then
                     final double violation = (double) missingTime / 1000.0;
                     data.fastBreakVL += violation;

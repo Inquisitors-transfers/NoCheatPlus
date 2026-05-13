@@ -20,10 +20,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import com.comphenix.protocol.PacketType;
-import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketEvent;
-import com.comphenix.protocol.reflect.StructureModifier;
 
 import fr.neatmonster.nocheatplus.NCPAPIProvider;
 import fr.neatmonster.nocheatplus.checks.CheckType;
@@ -46,7 +44,7 @@ public class KeepAliveAdapter extends BaseAdapter {
     private final KeepAliveFrequency frequencyCheck = new KeepAliveFrequency();
 
     public KeepAliveAdapter(Plugin plugin) {
-        super(plugin, ListenerPriority.LOW, PacketType.Play.Client.KEEP_ALIVE);
+        super(plugin, ListenerPriority.LOW, PacketType.Play.Client.KEEP_ALIVE, PacketType.Play.Server.KEEP_ALIVE);
         this.checkType = CheckType.NET_KEEPALIVEFREQUENCY;
         // Add feature tags for checks.
         if (NCPAPIProvider.getNoCheatPlusAPI().getWorldDataManager().isActiveAnywhere(CheckType.NET_KEEPALIVEFREQUENCY)) {
@@ -77,7 +75,7 @@ public class KeepAliveAdapter extends BaseAdapter {
         final NetConfig cc = pData.getGenericInstance(NetConfig.class);
 
         // Run check(s).
-        // TODO: Match vs. outgoing keep alive requests.
+        // KeepAlive model: outgoing server ids are recorded in onPacketSending; matching replies are expected.
         // TODO: Better modeling of actual packet sequences (flying vs. keep alive vs. request/ping).
         // TODO: Better integration with god-mode check / trigger reset ndt.
         if (frequencyCheck.isEnabled(player, pData) 
@@ -87,44 +85,24 @@ public class KeepAliveAdapter extends BaseAdapter {
     }
 
     private void recordKeepAlivePacketDetails(final PacketEvent event, final NetData data, final long time) {
-        final PacketContainer packet = event.getPacket();
-        boolean idAvailable = false;
-        long id = 0L;
-        String idType = "none";
-        int longCount = -1;
-        int intCount = -1;
-        try {
-            final StructureModifier<Long> longs = packet.getLongs();
-            longCount = longs.size();
-            if (longCount > 0) {
-                final Long value = longs.read(0);
-                if (value != null) {
-                    idAvailable = true;
-                    id = value.longValue();
-                    idType = "long";
-                }
-            }
-        }
-        catch (Throwable ignored) {}
-        try {
-            final StructureModifier<Integer> integers = packet.getIntegers();
-            intCount = integers.size();
-            if (!idAvailable && intCount > 0) {
-                final Integer value = integers.read(0);
-                if (value != null) {
-                    idAvailable = true;
-                    id = value.longValue();
-                    idType = "int";
-                }
-            }
-        }
-        catch (Throwable ignored) {}
-        data.recordKeepAlivePacket(time, idAvailable, id, idType, longCount, intCount,
+        final KeepAlivePacketInfo info = KeepAlivePacketInfo.read(event.getPacket());
+        data.recordKeepAlivePacket(time, info.idAvailable, info.id, info.idType, info.longCount, info.intCount,
                 event.isAsync(), Thread.currentThread().getName());
     }
 
     @Override
     public void onPacketSending(PacketEvent event) {
-        // TODO: Maybe detect if keep alive wasn't asked for + allow cancel.
+        final Player player = event.getPlayer();
+        if (player == null) {
+            return;
+        }
+        final IPlayerData pData = DataManager.getPlayerDataSafe(player);
+        if (pData == null) {
+            return;
+        }
+        final KeepAlivePacketInfo info = KeepAlivePacketInfo.read(event.getPacket());
+        pData.getGenericInstance(NetData.class).recordOutgoingKeepAlivePacket(System.currentTimeMillis(),
+                info.idAvailable, info.id, info.idType, info.longCount, info.intCount,
+                event.isAsync(), Thread.currentThread().getName());
     }
 }

@@ -223,7 +223,6 @@ public class Moving extends Check {
             final String joinedTags = StringUtil.join(tags, "+");
             player.getServer().getLogger().info(new StringBuilder(700)
                     .append("[NCP][NetMoving][detail] player=").append(player.getName())
-                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
                     .append(" subcheck=").append("violation".equals(reason) ? "NETMOVING_EXTREME_MOVE"
                             : "model".equals(reason) ? "NETMOVING_TELEPORT_RESYNC_MODEL" : "NETMOVING_GRACE")
@@ -253,13 +252,11 @@ public class Moving extends Check {
                     .toString());
             player.getServer().getLogger().info(new StringBuilder(900)
                     .append("[NCP][NetMoving][teleport] player=").append(player.getName())
-                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
                     .append(" ").append(data.describeMovingTeleportState(now, knownLocation, packetLocation, packetData))
                     .toString());
             player.getServer().getLogger().info(new StringBuilder(1100)
                     .append("[NCP][NetMoving][model] player=").append(player.getName())
-                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
                     .append(" playerState=").append(formatPlayerState(player))
                     .append(" movingData=").append(formatMovingData(mData, knownLocation))

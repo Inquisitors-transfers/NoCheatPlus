@@ -42,8 +42,6 @@ import fr.neatmonster.nocheatplus.players.IPlayerData;
  */
 public class CheckUtils {
 
-    public static final String RUNTIME_BUILD_TAG = "Version1289";
-
     public static final IPrimaryThreadContextTester primaryServerThreadContextTester = new IPrimaryThreadContextTester() {
 
         @Override

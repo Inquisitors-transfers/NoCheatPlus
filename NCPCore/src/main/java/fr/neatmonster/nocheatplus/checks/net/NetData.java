@@ -15,6 +15,7 @@
 package fr.neatmonster.nocheatplus.checks.net;
 
 import java.util.LinkedList;
+import java.util.Iterator;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -36,7 +37,6 @@ import fr.neatmonster.nocheatplus.logging.StaticLog;
 import fr.neatmonster.nocheatplus.players.DataManager;
 import fr.neatmonster.nocheatplus.players.IPlayerData;
 import fr.neatmonster.nocheatplus.utilities.CheckUtils;
-import fr.neatmonster.nocheatplus.utilities.StringUtil;
 import fr.neatmonster.nocheatplus.utilities.ds.count.ActionFrequency;
 import fr.neatmonster.nocheatplus.utilities.location.LocUtil;
 
@@ -66,6 +66,8 @@ public class NetData extends ACheckData {
     private static final long MOVING_TELEPORT_RESYNC_PENDING_MS = 4000L;
     private static final double MOVING_TELEPORT_RESYNC_TARGET_DISTANCE = 8.0D;
     private static final int MOVING_TELEPORT_RESYNC_NORMAL_STALE_PACKET_LIMIT = 2;
+    private static final long KEEP_ALIVE_REQUEST_MAX_AGE_MS = 30000L;
+    private static final int KEEP_ALIVE_REQUEST_MAX_PENDING = 40;
 
     // Reentrant lock.
     private final Lock lock = new ReentrantLock();
@@ -160,6 +162,20 @@ public class NetData extends ACheckData {
     public int keepAlivePacketIntCount = -1;
     public boolean keepAlivePacketAsync = false;
     public String keepAlivePacketThread = "unknown";
+    // KeepAlive model: expected client replies should match a recent outgoing server keepalive id.
+    private final LinkedList<KeepAliveRequest> keepAliveRequests = new LinkedList<KeepAliveRequest>();
+    public boolean keepAliveOutgoingSeen = false;
+    public long keepAliveOutgoingPacketTime = 0L;
+    public long keepAliveOutgoingPacketId = 0L;
+    public boolean keepAliveOutgoingPacketIdAvailable = false;
+    public String keepAliveOutgoingPacketIdType = "none";
+    public int keepAliveOutgoingPacketLongCount = -1;
+    public int keepAliveOutgoingPacketIntCount = -1;
+    public boolean keepAliveOutgoingPacketAsync = false;
+    public String keepAliveOutgoingPacketThread = "unknown";
+    public boolean keepAliveExpectedResponse = false;
+    public long keepAliveExpectedResponseAge = -1L;
+    public int keepAlivePendingRequests = 0;
 	
     // Wrong Turn
     public double wrongTurnVL = 0;
@@ -217,12 +233,14 @@ public class NetData extends ACheckData {
         resetMovingTeleportDiagnostics();
         teleportQueue.clear();
         clearFlyingQueue();
+        clearKeepAliveTracking();
     }
 
     public void onLeave(Player player) {
         resetMovingTeleportDiagnostics();
         teleportQueue.clear();
         clearFlyingQueue();
+        clearKeepAliveTracking();
     }
 
     /**
@@ -285,6 +303,73 @@ public class NetData extends ACheckData {
         keepAlivePacketAsync = async;
         keepAlivePacketThread = threadName == null ? "unknown" : threadName;
         keepAliveDuplicateId = idAvailable && keepAlivePreviousPacketIdAvailable && id == keepAlivePreviousPacketId;
+        keepAliveExpectedResponse = false;
+        keepAliveExpectedResponseAge = -1L;
+        synchronized (keepAliveRequests) {
+            pruneKeepAliveRequests(time);
+            if (idAvailable) {
+                final Iterator<KeepAliveRequest> iterator = keepAliveRequests.iterator();
+                while (iterator.hasNext()) {
+                    final KeepAliveRequest request = iterator.next();
+                    if (request.id == id) {
+                        keepAliveExpectedResponse = true;
+                        keepAliveExpectedResponseAge = Math.max(0L, time - request.time);
+                        iterator.remove();
+                        break;
+                    }
+                }
+            }
+            keepAlivePendingRequests = keepAliveRequests.size();
+        }
+    }
+
+    public void recordOutgoingKeepAlivePacket(final long time, final boolean idAvailable, final long id,
+                                             final String idType, final int longCount, final int intCount,
+                                             final boolean async, final String threadName) {
+        keepAliveOutgoingSeen = true;
+        keepAliveOutgoingPacketTime = time;
+        keepAliveOutgoingPacketIdAvailable = idAvailable;
+        keepAliveOutgoingPacketId = id;
+        keepAliveOutgoingPacketIdType = idType == null ? "none" : idType;
+        keepAliveOutgoingPacketLongCount = longCount;
+        keepAliveOutgoingPacketIntCount = intCount;
+        keepAliveOutgoingPacketAsync = async;
+        keepAliveOutgoingPacketThread = threadName == null ? "unknown" : threadName;
+        synchronized (keepAliveRequests) {
+            pruneKeepAliveRequests(time);
+            if (idAvailable) {
+                keepAliveRequests.addFirst(new KeepAliveRequest(time, id));
+                while (keepAliveRequests.size() > KEEP_ALIVE_REQUEST_MAX_PENDING) {
+                    keepAliveRequests.removeLast();
+                }
+            }
+            keepAlivePendingRequests = keepAliveRequests.size();
+        }
+    }
+
+    private void pruneKeepAliveRequests(final long time) {
+        while (!keepAliveRequests.isEmpty()
+                && time - keepAliveRequests.getLast().time > KEEP_ALIVE_REQUEST_MAX_AGE_MS) {
+            keepAliveRequests.removeLast();
+        }
+    }
+
+    private void clearKeepAliveTracking() {
+        synchronized (keepAliveRequests) {
+            keepAliveRequests.clear();
+            keepAlivePendingRequests = 0;
+        }
+        keepAliveOutgoingSeen = false;
+        keepAliveOutgoingPacketTime = 0L;
+        keepAliveOutgoingPacketId = 0L;
+        keepAliveOutgoingPacketIdAvailable = false;
+        keepAliveOutgoingPacketIdType = "none";
+        keepAliveOutgoingPacketLongCount = -1;
+        keepAliveOutgoingPacketIntCount = -1;
+        keepAliveOutgoingPacketAsync = false;
+        keepAliveOutgoingPacketThread = "unknown";
+        keepAliveExpectedResponse = false;
+        keepAliveExpectedResponseAge = -1L;
     }
 
     /**
@@ -453,12 +538,9 @@ public class NetData extends ACheckData {
                     ? syncLocation : modelLocation);
             markTeleportResyncApplied(resyncKey);
             if (shouldLogTeleportResyncSuccessToConsole()) {
-                player.getServer().getLogger().info("[NCP][NetMoving][resync] player=" + player.getName()
-                        + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
-                        + " action=applied"
-                        + " reason=" + (reason == null ? "unknown" : reason)
-                        + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
-                                lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch));
+                player.getServer().getLogger().info(NetDiagnostics.formatTeleportResyncApplied(player.getName(),
+                        "applied", reason, lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                        lastTeleportResyncYaw, lastTeleportResyncPitch));
             }
         }, null);
         if (!SchedulerHelper.isTaskScheduled(task)) {
@@ -545,12 +627,10 @@ public class NetData extends ACheckData {
         mData.onExternalTeleportResync(appliedTarget);
         markTeleportResyncApplied(lastTeleportResyncMovingDataKey);
         if (shouldLogTeleportResyncSuccessToConsole()) {
-            player.getServer().getLogger().info("[NCP][NetMoving][resync] player=" + player.getName()
-                    + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
-                    + " action=applied_move_event"
-                    + " reason=" + lastTeleportResyncReason
-                    + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
-                            lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch));
+            player.getServer().getLogger().info(NetDiagnostics.formatTeleportResyncApplied(player.getName(),
+                    "applied_move_event", lastTeleportResyncReason,
+                    lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                    lastTeleportResyncYaw, lastTeleportResyncPitch));
         }
         return true;
     }
@@ -688,76 +768,48 @@ public class NetData extends ACheckData {
                 .append(",eventWithinGrace=").append(isWithinMovingTeleportGrace(now))
                 .append(",eventCause=").append(lastMovingTeleportCause)
                 .append(",eventLoc=").append(formatTeleportEventLocation())
-                .append(",eventToKnown=").append(formatStoredDistance(lastMovingTeleportTime, lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, knownLocation))
-                .append(",eventToPacket=").append(formatStoredDistance(lastMovingTeleportTime, lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, packetLocation))
+                .append(",eventToKnown=").append(NetDiagnostics.formatStoredDistance(lastMovingTeleportTime, lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, knownLocation))
+                .append(",eventToPacket=").append(NetDiagnostics.formatStoredDistance(lastMovingTeleportTime, lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, packetLocation))
                 .append(",outgoingAge=").append(getOutgoingPositionGraceAge(now))
                 .append(",outgoingWithinGrace=").append(isWithinOutgoingPositionGrace(now, knownLocation))
                 .append(",outgoingTracked=").append(lastOutgoingPositionTracked)
                 .append(",outgoingTeleportId=").append(lastOutgoingPositionTeleportId)
                 .append(",outgoingLoc=").append(formatOutgoingPositionLocation())
-                .append(",outgoingToKnown=").append(formatStoredDistance(lastOutgoingPositionTime, lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, knownLocation))
-                .append(",outgoingToPacket=").append(formatStoredDistance(lastOutgoingPositionTime, lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, packetLocation))
+                .append(",outgoingToKnown=").append(NetDiagnostics.formatStoredDistance(lastOutgoingPositionTime, lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, knownLocation))
+                .append(",outgoingToPacket=").append(NetDiagnostics.formatStoredDistance(lastOutgoingPositionTime, lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, packetLocation))
                 .append(",serverJumpAge=").append(getServerPositionJumpGraceAge(now))
                 .append(",serverJumpWithinGrace=").append(isWithinServerPositionJumpGrace(now, knownLocation, packetLocation))
                 .append(",serverJumpStalePacketModel=").append(isWithinServerPositionJumpStalePacketModel(now,
                         knownLocation, packetLocation, packetData))
                 .append(",serverJumpFrom=").append(formatServerJumpFrom())
                 .append(",serverJumpTo=").append(formatServerJumpTo())
-                .append(",serverJumpToKnown=").append(formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ, knownLocation))
-                .append(",serverJumpFromPacket=").append(formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ, packetLocation))
+                .append(",serverJumpToKnown=").append(NetDiagnostics.formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ, knownLocation))
+                .append(",serverJumpFromPacket=").append(NetDiagnostics.formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ, packetLocation))
                 .append(",commandAge=").append(getTeleportCommandGraceAge(now))
                 .append(",commandWithinGrace=").append(isWithinTeleportCommandGrace(now, knownLocation, packetLocation))
                 .append(",commandStalePacketModel=").append(isWithinTeleportCommandStalePacketModel(now,
                         knownLocation, packetLocation, packetData))
                 .append(",command=").append(lastTeleportCommand)
                 .append(",commandLoc=").append(formatTeleportCommandLocation())
-                .append(",commandToKnown=").append(formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, knownLocation))
-                .append(",commandToPacket=").append(formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation))
+                .append(",commandToKnown=").append(NetDiagnostics.formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, knownLocation))
+                .append(",commandToPacket=").append(NetDiagnostics.formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation))
                 .append(",resync=").append(describeTeleportResyncState(now, knownLocation))
                 .append(",queue=").append(teleportQueue.getDebugState(now))
                 .toString();
     }
 
     public String describeKeepAliveState(final long now) {
-        final DataPacketFlying latest = getCurrentFlyingPacket();
-        return new StringBuilder(500)
-                .append("packetTime=").append(keepAlivePacketTime)
-                .append(",packetAge=").append(keepAlivePacketTime <= 0L ? -1L : now - keepAlivePacketTime)
-                .append(",previousPacketAge=").append(keepAlivePreviousPacketTime <= 0L ? -1L : now - keepAlivePreviousPacketTime)
-                .append(",delta=").append(keepAlivePacketDelta)
-                .append(",idAvailable=").append(keepAlivePacketIdAvailable)
-                .append(",idType=").append(keepAlivePacketIdType)
-                .append(",id=").append(keepAlivePacketIdAvailable ? Long.toString(keepAlivePacketId) : "none")
-                .append(",previousId=").append(keepAlivePreviousPacketIdAvailable ? Long.toString(keepAlivePreviousPacketId) : "none")
-                .append(",duplicateId=").append(keepAliveDuplicateId)
-                .append(",fieldCounts=long:").append(keepAlivePacketLongCount).append("/int:").append(keepAlivePacketIntCount)
-                .append(",async=").append(keepAlivePacketAsync)
-                .append(",thread=").append(keepAlivePacketThread)
-                .append(",lastSharedKeepAliveAge=").append(lastKeepAliveTime <= 0L ? -1L : now - lastKeepAliveTime)
-                .append(",teleportAges=event:").append(getMovingTeleportGraceAge(now))
-                .append(",outgoing:").append(getOutgoingPositionGraceAge(now))
-                .append(",serverJump:").append(getServerPositionJumpGraceAge(now))
-                .append(",command:").append(getTeleportCommandGraceAge(now))
-                .append(",latestFlying=").append(formatLatestFlying(latest, now))
-                .append(",matchedMoveSeq=").append(getLastMatchedMoveToSequence())
-                .append(",teleportQueue=").append(teleportQueue.getDebugState(now))
-                .toString();
+        return NetDiagnostics.formatKeepAliveState(this, now);
     }
 
-    private String formatLatestFlying(final DataPacketFlying latest, final long now) {
-        if (latest == null) {
-            return "none";
+    private static final class KeepAliveRequest {
+        private final long time;
+        private final long id;
+
+        private KeepAliveRequest(final long time, final long id) {
+            this.time = time;
+            this.id = id;
         }
-        return new StringBuilder(160)
-                .append("seq=").append(latest.getSequence())
-                .append(",age=").append(now - latest.time)
-                .append(",tracked=").append(latest.isTracked())
-                .append(",type=").append(latest.getSimplifiedContentType())
-                .append(",ground=").append(latest.onGround)
-                .append(",hcollide=").append(latest.horizontalCollision)
-                .append(",hasPos=").append(latest.hasPos)
-                .append(",hasLook=").append(latest.hasLook)
-                .toString();
     }
 
     private void resetMovingTeleportDiagnostics() {
@@ -787,21 +839,11 @@ public class NetData extends ACheckData {
     }
 
     private String describeTeleportResyncState(final long now, final Location knownLocation) {
-        if (lastTeleportResyncMovingDataKey <= 0L) {
-            return "none";
-        }
-        return new StringBuilder(150)
-                .append("{key=").append(lastTeleportResyncMovingDataKey)
-                .append(",age=").append(lastTeleportResyncRequestTime <= 0L ? -1L : now - lastTeleportResyncRequestTime)
-                .append(",applied=").append(lastTeleportResyncAppliedKey == lastTeleportResyncMovingDataKey)
-                .append(",reason=").append(lastTeleportResyncReason)
-                .append(",target=").append(formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
-                        lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch))
-                .append(",targetToKnown=").append(formatStoredDistance(lastTeleportResyncRequestTime,
-                        lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, knownLocation))
-                .append(",droppedPackets=").append(lastTeleportResyncDroppedPacketCount)
-                .append('}')
-                .toString();
+        return NetDiagnostics.formatTeleportResyncState(lastTeleportResyncMovingDataKey,
+                lastTeleportResyncRequestTime, lastTeleportResyncAppliedKey, lastTeleportResyncReason,
+                lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                lastTeleportResyncYaw, lastTeleportResyncPitch,
+                lastTeleportResyncDroppedPacketCount, knownLocation, now);
     }
 
     private void logTeleportResyncStalePacketDrop(final Player player, final long now,
@@ -828,23 +870,14 @@ public class NetData extends ACheckData {
         final int loggedCount = lastTeleportResyncPendingDropLogCount;
         lastTeleportResyncPendingDropLogCount = 0;
         lastTeleportResyncDroppedPacketLogTime = now;
-        player.getServer().getLogger().info("[NCP][NetMoving][stale-drop] player=" + player.getName()
-                + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
-                + " action=" + action
-                + " reason=" + (reason == null ? "unknown" : reason)
-                + " droppedPackets=" + lastTeleportResyncDroppedPacketCount
-                + " loggedCount=" + loggedCount
-                + " queueSizeBeforeClear=" + queueSizeBeforeClear
-                + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
-                        lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch)
-                + " targetToKnown=" + formatStoredDistance(lastTeleportResyncRequestTime,
-                        lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, knownLocation)
-                + " packetToServerJumpFrom=" + formatStoredDistance(lastServerPositionJumpTime,
-                        lastServerPositionJumpFromX, lastServerPositionJumpFromY,
-                        lastServerPositionJumpFromZ, packetLocation)
-                + " packetToCommand=" + formatStoredDistance(lastTeleportCommandTime,
-                        lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation)
-                + " packet=" + formatPacket(packetData, now));
+        player.getServer().getLogger().info(NetDiagnostics.formatTeleportStaleDrop(player.getName(),
+                action, reason, lastTeleportResyncDroppedPacketCount, loggedCount, queueSizeBeforeClear,
+                lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                lastTeleportResyncYaw, lastTeleportResyncPitch, lastTeleportResyncRequestTime,
+                knownLocation, lastServerPositionJumpTime, lastServerPositionJumpFromX,
+                lastServerPositionJumpFromY, lastServerPositionJumpFromZ, lastTeleportCommandTime,
+                lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ,
+                packetLocation, packetData, now));
     }
 
     private boolean shouldLogTeleportResyncSuccessToConsole() {
@@ -862,21 +895,6 @@ public class NetData extends ACheckData {
         }
     }
 
-    private String formatPacket(final DataPacketFlying packetData, final long now) {
-        if (packetData == null) {
-            return "none";
-        }
-        return new StringBuilder(120)
-                .append("seq=").append(packetData.getSequence())
-                .append(",age=").append(now - packetData.time)
-                .append(",type=").append(packetData.getSimplifiedContentType())
-                .append(",tracked=").append(packetData.isTracked())
-                .append(",ground=").append(packetData.onGround)
-                .append(",hCollision=").append(packetData.horizontalCollision)
-                .append(",hasPos=").append(packetData.hasPos)
-                .toString();
-    }
-
     private boolean matchesPosition(final double x, final double y, final double z, final Location loc) {
         return loc != null
             && Math.abs(x - loc.getX()) <= MOVING_POSITION_MATCH_EPSILON
@@ -887,19 +905,19 @@ public class NetData extends ACheckData {
     private String formatTeleportEventLocation() {
         return lastMovingTeleportTime <= 0L ? "none"
                 : new StringBuilder(100).append(lastMovingTeleportWorld).append('@')
-                        .append(formatStoredLocation(lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, lastMovingTeleportYaw, lastMovingTeleportPitch))
+                        .append(NetDiagnostics.formatStoredLocation(lastMovingTeleportX, lastMovingTeleportY, lastMovingTeleportZ, lastMovingTeleportYaw, lastMovingTeleportPitch))
                         .toString();
     }
 
     private String formatOutgoingPositionLocation() {
         return lastOutgoingPositionTime <= 0L ? "none"
-                : formatStoredLocation(lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, lastOutgoingPositionYaw, lastOutgoingPositionPitch);
+                : NetDiagnostics.formatStoredLocation(lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, lastOutgoingPositionYaw, lastOutgoingPositionPitch);
     }
 
     private String formatServerJumpFrom() {
         return lastServerPositionJumpTime <= 0L ? "none"
                 : new StringBuilder(100).append(lastServerPositionJumpFromWorld).append('@')
-                        .append(formatStoredLocation(lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ,
+                        .append(NetDiagnostics.formatStoredLocation(lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ,
                                 lastServerPositionJumpFromYaw, lastServerPositionJumpFromPitch))
                         .toString();
     }
@@ -907,7 +925,7 @@ public class NetData extends ACheckData {
     private String formatServerJumpTo() {
         return lastServerPositionJumpTime <= 0L ? "none"
                 : new StringBuilder(100).append(lastServerPositionJumpToWorld).append('@')
-                        .append(formatStoredLocation(lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ,
+                        .append(NetDiagnostics.formatStoredLocation(lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ,
                                 lastServerPositionJumpToYaw, lastServerPositionJumpToPitch))
                         .toString();
     }
@@ -915,33 +933,9 @@ public class NetData extends ACheckData {
     private String formatTeleportCommandLocation() {
         return lastTeleportCommandTime <= 0L ? "none"
                 : new StringBuilder(100).append(lastTeleportCommandWorld).append('@')
-                        .append(formatStoredLocation(lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ,
+                        .append(NetDiagnostics.formatStoredLocation(lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ,
                                 lastTeleportCommandYaw, lastTeleportCommandPitch))
                         .toString();
-    }
-
-    private String formatStoredLocation(final double x, final double y, final double z, final float yaw, final float pitch) {
-        return new StringBuilder(90)
-                .append("x=").append(StringUtil.fdec3.format(x))
-                .append(",y=").append(StringUtil.fdec3.format(y))
-                .append(",z=").append(StringUtil.fdec3.format(z))
-                .append(",yaw=").append(StringUtil.fdec3.format(yaw))
-                .append(",pitch=").append(StringUtil.fdec3.format(pitch))
-                .toString();
-    }
-
-    private String formatStoredDistance(final long storedTime, final double x, final double y, final double z, final Location loc) {
-        if (storedTime <= 0L || loc == null) {
-            return "none";
-        }
-        final double xDiff = loc.getX() - x;
-        final double yDiff = loc.getY() - y;
-        final double zDiff = loc.getZ() - z;
-        return new StringBuilder(80)
-                .append("h=").append(StringUtil.fdec3.format(Math.sqrt(xDiff * xDiff + zDiff * zDiff)))
-                .append("/y=").append(StringUtil.fdec3.format(Math.abs(yDiff)))
-                .append("/total=").append(StringUtil.fdec3.format(Math.sqrt(xDiff * xDiff + yDiff * yDiff + zDiff * zDiff)))
-                .toString();
     }
 
     private double distanceToStored(final double x, final double y, final double z, final Location loc) {

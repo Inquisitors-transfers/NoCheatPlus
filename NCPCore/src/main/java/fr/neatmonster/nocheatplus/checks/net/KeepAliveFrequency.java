@@ -20,8 +20,6 @@ import fr.neatmonster.nocheatplus.checks.Check;
 import fr.neatmonster.nocheatplus.checks.CheckType;
 import fr.neatmonster.nocheatplus.players.IPlayerData;
 import fr.neatmonster.nocheatplus.utilities.CheckUtils;
-import fr.neatmonster.nocheatplus.utilities.StringUtil;
-import fr.neatmonster.nocheatplus.utilities.TickTask;
 
 public class KeepAliveFrequency extends Check {
 
@@ -43,85 +41,90 @@ public class KeepAliveFrequency extends Check {
         if (joinTime > 0L && now < joinTime + cc.keepAliveFrequencyStartupDelay) {
             return false;
         }
+        if (data.keepAliveExpectedResponse && !data.keepAliveDuplicateId) {
+            return false;
+        }
         data.keepAliveFreq.add(time, 1f);
         final float first = data.keepAliveFreq.bucketScore(0);
         
         if (first > 1f) {
             // Trigger a violation.
             final float fullScore = data.keepAliveFreq.score(1f);
-            if (isBucketBoundaryGrace(data, fullScore, first)) {
+            if (isModeledBoundaryBurst(data, fullScore, first)) {
                 return false;
             }
-            final double vl = Math.max(first - 1f, fullScore - data.keepAliveFreq.numberOfBuckets());
+            final double vl = Math.max(first - getFirstBucketViolationLimit(data), fullScore - data.keepAliveFreq.numberOfBuckets());
             final boolean cancel = executeActions(player, vl, 1.0, cc.keepAliveFrequencyActions).willCancel();
             if (CheckUtils.shouldLogDebugToConsole()) {
                 // Diagnostic info: bucket details separate duplicate packets from normal boundary timing.
-                logConsoleDetails(player, time, now, joinTime, data, cc, pData, first, fullScore, vl, cancel);
+                logConsoleDetails(player, time, now, joinTime, data, cc, pData, first, fullScore, vl,
+                        cancel, describeKeepAliveModel(data, fullScore, first), getFirstBucketViolationLimit(data));
             }
             return cancel;
         }
         return false;
     }
 
-    private boolean isBucketBoundaryGrace(final NetData data, final float fullScore, final float first) {
-        // False-positive tuning: Folia/modern client timing can put two legitimate replies in the first bucket.
+    private boolean isModeledBoundaryBurst(final NetData data, final float fullScore, final float first) {
+        // KeepAlive model: if outgoing tracking is unavailable, only treat small monotonic id bursts as timing leftovers.
         if (data.keepAliveDuplicateId || fullScore > data.keepAliveFreq.numberOfBuckets() + 2f) {
             return false;
         }
         // Folia/netty can timestamp two adjacent valid replies in the same millisecond; do not cancel a single pair.
-        return first <= 2f || first <= 3f && data.keepAlivePacketDelta >= 250L;
+        return first <= 2f || isUntrackedMonotonicBurst(data, fullScore, first);
+    }
+
+    private boolean isUntrackedMonotonicBurst(final NetData data, final float fullScore, final float first) {
+        if (data.keepAliveOutgoingSeen || fullScore > data.keepAliveFreq.numberOfBuckets()) {
+            return false;
+        }
+        if (!data.keepAlivePacketIdAvailable || !data.keepAlivePreviousPacketIdAvailable) {
+            return false;
+        }
+        if (data.keepAlivePacketId <= data.keepAlivePreviousPacketId) {
+            return false;
+        }
+        return first <= getFallbackFirstBucketLimit(data);
+    }
+
+    private float getFirstBucketViolationLimit(final NetData data) {
+        if (data.keepAliveDuplicateId) {
+            return 1f;
+        }
+        if (!data.keepAliveOutgoingSeen
+                && data.keepAlivePacketIdAvailable
+                && data.keepAlivePreviousPacketIdAvailable
+                && data.keepAlivePacketId > data.keepAlivePreviousPacketId) {
+            return getFallbackFirstBucketLimit(data);
+        }
+        return 2f;
+    }
+
+    private float getFallbackFirstBucketLimit(final NetData data) {
+        return Math.max(3f, Math.min(6f, data.keepAliveFreq.numberOfBuckets() / 4f));
+    }
+
+    private String describeKeepAliveModel(final NetData data, final float fullScore, final float first) {
+        if (data.keepAliveDuplicateId) {
+            return "duplicate-id";
+        }
+        if (data.keepAliveOutgoingSeen) {
+            return "unmatched-outgoing";
+        }
+        if (isUntrackedMonotonicBurst(data, fullScore, first)) {
+            return "untracked-monotonic-burst";
+        }
+        return "bucket-frequency";
     }
 
     private void logConsoleDetails(final Player player, final long packetTime, final long now, final long joinTime,
                                    final NetData data, final NetConfig cc, final IPlayerData pData,
                                    final float first, final float fullScore, final double vl,
-                                   final boolean cancel) {
+                                   final boolean cancel, final String model, final float firstLimit) {
         try {
-            final long bucketDuration = data.keepAliveFreq.bucketDuration();
-            final int buckets = data.keepAliveFreq.numberOfBuckets();
-            player.getServer().getLogger().info(new StringBuilder(900)
-                    .append("[NCP][KeepAliveFrequency][detail] player=").append(player.getName())
-                    .append(" uuid=").append(player.getUniqueId())
-                    .append(" client=").append(pData.getClientVersion())
-                    .append(" summary=keepalive_bucket{first=").append(StringUtil.fdec3.format(first))
-                    .append(",full=").append(StringUtil.fdec3.format(fullScore))
-                    .append(",expected=").append(data.keepAliveFreq.numberOfBuckets())
-                    .append(",cancel=").append(cancel)
-                    .append('}')
-                    .append(" packetTime=").append(packetTime)
-                    .append(" now=").append(now)
-                    .append(" joinAge=").append(joinTime <= 0L ? -1L : now - joinTime)
-                    .append(" startupDelay=").append(cc.keepAliveFrequencyStartupDelay)
-                    .append(" vl=").append(StringUtil.fdec3.format(vl))
-                    .append(" cancel=").append(cancel)
-                    .append(" firstBucket=").append(StringUtil.fdec3.format(first))
-                    .append(" fullScore=").append(StringUtil.fdec3.format(fullScore))
-                    .append(" expectedFull=").append(buckets)
-                    .append(" bucketDuration=").append(bucketDuration)
-                    .append(" bucketAge=").append(now - data.keepAliveFreq.lastAccess())
-                    .append(" lastUpdateAge=").append(now - data.keepAliveFreq.lastUpdate())
-                    .append(" lag1s=").append(StringUtil.fdec3.format(TickTask.getLag(bucketDuration, true)))
-                    .append(" lagWindow=").append(StringUtil.fdec3.format(TickTask.getLag(bucketDuration * buckets, true)))
-                    .append(" buckets=").append(formatBuckets(data, Math.min(6, buckets)))
-                    .append(" state=").append(data.describeKeepAliveState(now))
-                    .toString());
+            player.getServer().getLogger().info(KeepAliveDiagnostics.formatDetail(player, packetTime, now, joinTime,
+                    data, cc, pData, first, fullScore, vl, cancel, model, firstLimit));
         }
         catch (Throwable ignored) {}
-    }
-
-    private String formatBuckets(final NetData data, final int limit) {
-        final StringBuilder builder = new StringBuilder(80);
-        builder.append('[');
-        for (int i = 0; i < limit; i++) {
-            if (i > 0) {
-                builder.append(',');
-            }
-            builder.append(StringUtil.fdec3.format(data.keepAliveFreq.bucketScore(i)));
-        }
-        if (limit < data.keepAliveFreq.numberOfBuckets()) {
-            builder.append(",...");
-        }
-        builder.append(']');
-        return builder.toString();
     }
 }

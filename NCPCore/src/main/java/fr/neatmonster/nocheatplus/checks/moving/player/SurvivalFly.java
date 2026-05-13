@@ -24,7 +24,6 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.potion.PotionEffect;
 import org.bukkit.util.Vector;
 
 import fr.neatmonster.nocheatplus.NCPAPIProvider;
@@ -97,6 +96,10 @@ public class SurvivalFly extends Check {
     private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_OVER_GRACE = 0.45D;
     private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_VELOCITY_GRACE = 0.45D;
     private static final double BEDROCK_GROUNDED_COMBAT_VERTICAL_LAUNCH_HORIZONTAL_RESIDUAL = 0.05D;
+    private static final double BEDROCK_GROUND_VERTICAL_QUANTUM = 0.0625D;
+    private static final double BEDROCK_GROUND_VERTICAL_QUANTUM_EPSILON = 0.006D;
+    private static final double BEDROCK_PACKET_VERTICAL_PRECISION = 0.01D;
+    private static final double BEDROCK_AIR_GRAVITY_RESET_EPSILON = 0.015D;
     private static final double BEDROCK_HALF_STEP_VERTICAL_MOVE = 0.50D;
     private static final double BEDROCK_HALF_STEP_VERTICAL_EPSILON = 0.015D;
     private static final double BEDROCK_STEP_VERTICAL_UNDERSHOOT_MOVE_GRACE = 0.05D;
@@ -146,6 +149,8 @@ public class SurvivalFly extends Check {
     private static final double WATER_QUEUED_VELOCITY_HORIZONTAL_RESIDUAL = 0.11D;
     private static final double WATER_CURRENT_VELOCITY_HORIZONTAL_RESIDUAL = 0.12D;
     private static final double WATER_CURRENT_VELOCITY_HORIZONTAL_CAP = 0.45D;
+    private static final double WATER_IMPLICIT_SWIM_HORIZONTAL_CAP = 0.16D;
+    private static final double WATER_IMPLICIT_SWIM_HORIZONTAL_RESIDUAL = 0.10D;
     private static final double WATER_VERTICAL_MODEL_EPSILON = 0.06D;
     private static final double WATER_SURFACE_ASCEND_MODEL = 0.34D;
     private static final double WATER_SURFACE_EXIT_ASCEND_MODEL = 0.30D;
@@ -167,6 +172,7 @@ public class SurvivalFly extends Check {
     private static final double CLIMBABLE_DESCEND_OVER_GRACE = 0.30D;
     private static final double CLIMBABLE_VERTICAL_PRECISION_GRACE = 0.005D;
     private static final double CLIMBABLE_JUMP_CARRY_HORIZONTAL_EPSILON = 0.04D;
+    private static final double CLIMBABLE_ENTRY_HORIZONTAL_CARRY = 0.24D;
     private static final double CLIMBABLE_DIAGONAL_AXIS_CAP = Magic.CLIMBABLE_MAX_SPEED * Math.sqrt(2.0D);
     private static final double LEVITATION_STALL_VERTICAL_GRACE = 0.12D;
     private static final double LEVITATION_STALL_OVER_GRACE = 0.12D;
@@ -226,6 +232,7 @@ public class SurvivalFly extends Check {
     private static final double ELYTRA_EQUIPPED_STALE_ASCEND_HORIZONTAL_OVER_GRACE = 0.10D;
     private static final double ELYTRA_EQUIPPED_STALE_ASCEND_MOVE_GRACE = 0.65D;
     private static final double ELYTRA_EQUIPPED_GROUND_STEP_VERTICAL_GRACE = 0.52D;
+    private static final double ELYTRA_EQUIPPED_GLIDE_EXIT_VERTICAL_MATCH = 0.02D;
     private static final double ELYTRA_LIFTOFF_VERTICAL_OVER_GRACE = 0.095D;
     private static final double ELYTRA_LIFTOFF_MAX_ASCEND = 0.44D;
     private static final double ELYTRA_LIFTOFF_LAST_Y_GRACE = 0.02D;
@@ -327,6 +334,8 @@ public class SurvivalFly extends Check {
     private static final double AIR_CURRENT_VELOCITY_MAX_HORIZONTAL_MOVE = 0.34D;
     private static final double QUEUED_VELOCITY_VERTICAL_PACKET_ORDER_OVER = 0.12D;
     private static final double QUEUED_VELOCITY_VERTICAL_PACKET_ORDER_MOVE = 0.05D;
+    private static final double QUEUED_VELOCITY_VERTICAL_INERTIA_RESIDUAL = 0.025D;
+    private static final double QUEUED_VELOCITY_VERTICAL_INERTIA_MIN_H = 0.75D;
     private static final long SERVER_POSITION_JUMP_SURVIVALFLY_GRACE_MS = 2500L;
     private static final double SERVER_POSITION_JUMP_HORIZONTAL_OVER_GRACE = 0.55D;
     private static final double SERVER_POSITION_JUMP_HORIZONTAL_MOVE_GRACE = 0.65D;
@@ -601,8 +610,8 @@ public class SurvivalFly extends Check {
             final Location vLoc = handleViolation(result, player, from, to, data, cc);
             if (CheckUtils.shouldLogDebugToConsole()) {
                 try {
-                    logConsoleDetails(result, player, from, to, vLoc, data, cc, pData, thisMove, lastMove, hAllowedDistance,
-                            hDistanceAboveLimit, hFreedom, yAllowedDistance, yDistanceAboveLimit, fromOnGround, resetFrom,
+                    logConsoleDetails(result, player, from, to, vLoc, data, pData, thisMove, lastMove, hAllowedDistance,
+                            hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit, fromOnGround, resetFrom,
                             toOnGround, resetTo, tick, now, multiMoveCount, isNormalOrPacketSplitMove);
                 }
                 catch (Throwable t) {
@@ -1165,6 +1174,7 @@ public class SurvivalFly extends Check {
         return clientVersion == ClientVersion.UNKNOWN ? ClientVersion.getLatest() : clientVersion;
     }
 
+    // Movement client models: Bedrock and newer clients can round or packetize movement differently than legacy Java clients.
     private boolean isBedrockPacketPrecisionContext(final Player player, final IPlayerData pData,
                                                     final PlayerLocation from, final PlayerLocation to,
                                                     final PlayerMoveData thisMove) {
@@ -1191,6 +1201,29 @@ public class SurvivalFly extends Check {
             return true;
         }
         tags.add("bedrock_packet_precision_horizontal_model_miss");
+        return false;
+    }
+
+    private boolean acceptsBedrockPacketPrecisionVerticalModel(final Player player, final IPlayerData pData,
+                                                               final PlayerLocation from, final PlayerLocation to,
+                                                               final PlayerMoveData thisMove,
+                                                               final double yDistanceAboveLimit,
+                                                               final double hDistanceAboveLimit) {
+        if (!isBedrockPacketPrecisionContext(player, pData, from, to, thisMove)
+                || hDistanceAboveLimit > BEDROCK_HORIZONTAL_PREDICTION_EPSILON) {
+            return false;
+        }
+        /*
+         * Bedrock model: Floodgate/Geyser packets can expose a tiny Y snap around
+         * ground/partial-block transitions. This is packet precision, not a fall
+         * bypass, so keep it under one-centimeter movement and one-centimeter over.
+         */
+        if (Math.abs(thisMove.yDistance) <= BEDROCK_PACKET_VERTICAL_PRECISION
+                && yDistanceAboveLimit <= BEDROCK_PACKET_VERTICAL_PRECISION) {
+            tags.add("bedrock_packet_precision_vertical_model");
+            return true;
+        }
+        tags.add("bedrock_packet_precision_vertical_model_miss");
         return false;
     }
 
@@ -1378,6 +1411,7 @@ public class SurvivalFly extends Check {
                         + GROUNDED_MICRO_HORIZONTAL_GRACE));
     }
 
+    // Explicit model dispatch: select the movement state first, then compare against that state's envelope.
     private double[] applyExplicitMovementModel(final Player player, final IPlayerData pData, final MovingData data,
                                                 final PlayerLocation from, final PlayerLocation to,
                                                 final PlayerMoveData thisMove, final PlayerMoveData lastMove,
@@ -1652,6 +1686,8 @@ public class SurvivalFly extends Check {
                         || acceptsElytraEquippedVelocityVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedStaleAscendVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedVelocityHandoffVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
+                        || acceptsElytraEquippedGlideExitVerticalModel(player, thisMove, lastMove,
+                                yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedDescendVerticalModel(player, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedNeutralVerticalModel(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedSmallVerticalResyncModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
@@ -1674,13 +1710,17 @@ public class SurvivalFly extends Check {
                 return acceptsBedrockStepVerticalModel(player, pData, from, to, thisMove, lastMove,
                         yDistanceAboveLimit, hDistanceAboveLimit);
             case BEDROCK_PACKET_PRECISION:
+                return acceptsBedrockPacketPrecisionVerticalModel(player, pData, from, to, thisMove,
+                        yDistanceAboveLimit, hDistanceAboveLimit)
+                        || acceptsModernClientGroundVerticalModel(pData, from, to, thisMove,
+                                yDistanceAboveLimit, hDistanceAboveLimit);
             case MODERN_CLIENT_GROUND:
                 return acceptsModernClientGroundVerticalModel(pData, from, to, thisMove, yDistanceAboveLimit,
                         hDistanceAboveLimit);
             case GROUNDED_RECOVERY:
                 return false;
             case BEDROCK_GROUNDED_COMBAT:
-                return acceptsBedrockGroundedCombatVerticalModel(player, pData, from, to, thisMove,
+                return acceptsBedrockGroundedCombatVerticalModel(player, pData, from, to, thisMove, lastMove,
                         yDistanceAboveLimit, hDistanceAboveLimit);
             case MODERN_HALF_STEP:
                 return acceptsModernHalfStepVerticalModel(player, pData, from, to, thisMove, lastMove,
@@ -1693,7 +1733,7 @@ public class SurvivalFly extends Check {
             case SERVER_VERTICAL_VELOCITY:
                 return false;
             case GROUNDED_VERTICAL_VELOCITY:
-                return acceptsGroundedVerticalVelocityVerticalModel(player, from, to, thisMove,
+                return acceptsGroundedVerticalVelocityVerticalModel(player, from, to, thisMove, lastMove,
                         yDistanceAboveLimit, hDistanceAboveLimit);
             case PARTIAL_SUPPORT:
                 return acceptsPartialSupportVerticalModel(player, from, to, thisMove, lastMove,
@@ -1713,6 +1753,8 @@ public class SurvivalFly extends Check {
                 return acceptsLevitationVerticalModel(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit);
             case QUEUED_VELOCITY:
                 return isCurrentServerVelocityVerticalGrace(player, thisMove, yDistanceAboveLimit, hDistanceAboveLimit)
+                        || isQueuedVelocityVerticalInertiaHandoffModel(player, data, from, to, thisMove, lastMove,
+                                yDistanceAboveLimit, hDistanceAboveLimit)
                         || isQueuedVelocityVerticalPacketOrderModel(player, data, from, to, thisMove,
                                 yDistanceAboveLimit, hDistanceAboveLimit);
             case COLLISION:
@@ -1953,6 +1995,7 @@ public class SurvivalFly extends Check {
         return Math.abs(units - Math.round(units)) <= PARTIAL_SUPPORT_VERTICAL_CLAMP_EPSILON;
     }
 
+    // Collision and invalid-history models: recover from collision-shape snaps without treating them as open-air movement.
     private boolean acceptsCollisionHorizontalModel(final Player player, final PlayerLocation from,
                                                     final PlayerLocation to, final PlayerMoveData thisMove,
                                                     final PlayerMoveData lastMove,
@@ -2303,6 +2346,7 @@ public class SurvivalFly extends Check {
                 playerStepHorizontalModel(thisMove) + LAST_INVALID_GROUND_INPUT_HORIZONTAL_RESIDUAL);
     }
 
+    // Elytra and firework models: compare gliding packets to velocity, look vector, and launch-energy envelopes.
     private boolean acceptsGlidingHorizontalVelocityModel(final Player player, final MovingData data,
                                                           final PlayerLocation from, final PlayerLocation to,
                                                           final PlayerMoveData thisMove,
@@ -2608,6 +2652,7 @@ public class SurvivalFly extends Check {
                 amountResidual, perpendicularResidual);
     }
 
+    // Liquid models: swimming and lava movement use liquid input acceleration plus current/queued server velocity.
     private boolean acceptsWaterHorizontalModel(final Player player, final MovingData data,
                                                 final PlayerLocation from,
                                                 final PlayerLocation to, final PlayerMoveData thisMove,
@@ -2638,6 +2683,10 @@ public class SurvivalFly extends Check {
             tags.add("water_current_velocity_horizontal_model");
             return true;
         }
+        if (acceptsWaterImplicitSwimHorizontalModel(thisMove, hDistanceAboveLimit)) {
+            tags.add("water_implicit_swim_horizontal_model");
+            return true;
+        }
         return acceptsWaterQueuedVelocityHorizontalModel(data, thisMove, hDistanceAboveLimit);
     }
 
@@ -2657,6 +2706,21 @@ public class SurvivalFly extends Check {
         return thisMove.hDistance <= limit
                 && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
                         limit, WATER_CURRENT_VELOCITY_HORIZONTAL_RESIDUAL);
+    }
+
+    private boolean acceptsWaterImplicitSwimHorizontalModel(final PlayerMoveData thisMove,
+                                                            final double hDistanceAboveLimit) {
+        /*
+         * Water model: Bedrock and Java can send small swim/body pushes even when
+         * Bukkit exposes no useful current velocity. Keep this bounded to normal
+         * submerged swim speed instead of setting allowed movement to actual.
+         */
+        final double verticalEnvelope = WATER_SURFACE_ASCEND_MODEL + WATER_VERTICAL_MODEL_EPSILON;
+        final double limit = Math.max(thisMove.hAllowedDistance, WATER_IMPLICIT_SWIM_HORIZONTAL_CAP);
+        return thisMove.hDistance <= limit
+                && Math.abs(thisMove.yDistance) <= verticalEnvelope
+                && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
+                        limit, WATER_IMPLICIT_SWIM_HORIZONTAL_RESIDUAL);
     }
 
     private boolean acceptsLavaHorizontalModel(final Player player, final MovingData data,
@@ -2705,6 +2769,7 @@ public class SurvivalFly extends Check {
                                 + LAVA_VELOCITY_HORIZONTAL_RESIDUAL));
     }
 
+    // Step and partial-support models: half blocks, lanterns, carpet, fences, and similar shapes have their own support envelope.
     private boolean isModernHalfStepContext(final Player player, final IPlayerData pData,
                                             final PlayerLocation from, final PlayerLocation to,
                                             final PlayerMoveData thisMove, final PlayerMoveData lastMove) {
@@ -3452,6 +3517,7 @@ public class SurvivalFly extends Check {
         return Math.max(0.0D, modelLimit - allowedDistance) + epsilon;
     }
 
+    // Teleport/server-position models: clear stale movement history around async teleports, portals, respawn, and RTP-style jumps.
     private boolean acceptsServerPositionJumpResyncHorizontalModel(final IPlayerData pData,
                                                                    final PlayerLocation from,
                                                                    final PlayerLocation to,
@@ -3538,6 +3604,7 @@ public class SurvivalFly extends Check {
                 && !thisMove.from.onGroundOrResetCond && !thisMove.to.onGroundOrResetCond;
     }
 
+    // Bedrock movement models: keep Bedrock packet behavior separate unless it shares the exact same shape envelope as Java.
     private boolean acceptsBedrockGroundedCombatHorizontalModel(final Player player, final IPlayerData pData,
                                                                 final PlayerLocation from, final PlayerLocation to,
                                                                 final PlayerMoveData thisMove,
@@ -3555,11 +3622,24 @@ public class SurvivalFly extends Check {
     private boolean acceptsBedrockGroundedCombatVerticalModel(final Player player, final IPlayerData pData,
                                                               final PlayerLocation from, final PlayerLocation to,
                                                               final PlayerMoveData thisMove,
+                                                              final PlayerMoveData lastMove,
                                                               final double yDistanceAboveLimit,
                                                               final double hDistanceAboveLimit) {
         if (!isBedrockGroundedCombatContext(player, pData, from, to, thisMove)
                 || hDistanceAboveLimit > BEDROCK_GROUNDED_COMBAT_HORIZONTAL_OVER_GRACE) {
             return false;
+        }
+        if (acceptsBedrockGroundVerticalSnapModel(thisMove, yDistanceAboveLimit)) {
+            tags.add("bedrock_grounded_combat_vertical_snap_model");
+            return true;
+        }
+        if (acceptsBedrockAirGravityResetModel(thisMove, lastMove, yDistanceAboveLimit)) {
+            tags.add("bedrock_grounded_combat_air_gravity_reset_model");
+            return true;
+        }
+        if (acceptsBedrockGroundVerticalQuantumModel(thisMove, yDistanceAboveLimit)) {
+            tags.add("bedrock_grounded_combat_vertical_quantum_model");
+            return true;
         }
         final double verticalLimit = Math.min(BEDROCK_GROUNDED_COMBAT_VERTICAL_MOVE_GRACE,
                 Math.max(thisMove.yAllowedDistance, Math.abs(player.getVelocity().getY())
@@ -3567,6 +3647,52 @@ public class SurvivalFly extends Check {
         return Math.abs(thisMove.yDistance) <= verticalLimit
                 && yDistanceAboveLimit <= getModelOverLimit(thisMove.yAllowedDistance,
                         verticalLimit, Magic.PREDICTION_EPSILON);
+    }
+
+    private boolean acceptsBedrockGroundVerticalSnapModel(final PlayerMoveData thisMove,
+                                                          final double yDistanceAboveLimit) {
+        /*
+         * Bedrock model: after combat/ground packets, Geyser can report the
+         * player as vertically snapped to the floor while Java prediction still
+         * carries the launch Y. Bound by the predicted Y difference itself.
+         */
+        return Math.abs(thisMove.yDistance) <= Magic.PREDICTION_EPSILON
+                && thisMove.yAllowedDistance > Magic.PREDICTION_EPSILON
+                && thisMove.yAllowedDistance <= BEDROCK_GROUNDED_COMBAT_VERTICAL_MOVE_GRACE
+                && yDistanceAboveLimit <= thisMove.yAllowedDistance + Magic.PREDICTION_EPSILON;
+    }
+
+    private boolean acceptsBedrockAirGravityResetModel(final PlayerMoveData thisMove,
+                                                       final PlayerMoveData lastMove,
+                                                       final double yDistanceAboveLimit) {
+        /*
+         * Bedrock model: after a jump/step ascent, Geyser can expose the first
+         * air-gravity tick while Java prediction still carries the ascent.
+         */
+        if (!lastMove.toIsValid
+                || lastMove.yDistance <= Magic.PREDICTION_EPSILON
+                || thisMove.yAllowedDistance <= Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double firstAirGravity = getAirInertiaFirstGravityModel();
+        return matchesVerticalModel(thisMove.yDistance, firstAirGravity,
+                BEDROCK_AIR_GRAVITY_RESET_EPSILON)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - firstAirGravity)
+                        + BEDROCK_AIR_GRAVITY_RESET_EPSILON;
+    }
+
+    private boolean acceptsBedrockGroundVerticalQuantumModel(final PlayerMoveData thisMove,
+                                                             final double yDistanceAboveLimit) {
+        /*
+         * Bedrock model: partial-block support can surface one 1/16th-block
+         * vertical quantum while Java's ground model predicts zero or slight
+         * descent. This is deliberately limited to that quantized step.
+         */
+        final double quantum = Math.abs(thisMove.yDistance);
+        return thisMove.yAllowedDistance <= Magic.PREDICTION_EPSILON
+                && Math.abs(quantum - BEDROCK_GROUND_VERTICAL_QUANTUM) <= BEDROCK_GROUND_VERTICAL_QUANTUM_EPSILON
+                && yDistanceAboveLimit <= BEDROCK_GROUND_VERTICAL_QUANTUM
+                        + BEDROCK_GROUND_VERTICAL_QUANTUM_EPSILON;
     }
 
     private boolean acceptsBedrockStepHorizontalModel(final Player player, final IPlayerData pData,
@@ -3622,6 +3748,7 @@ public class SurvivalFly extends Check {
                                                                  final PlayerLocation from,
                                                                  final PlayerLocation to,
                                                                  final PlayerMoveData thisMove,
+                                                                 final PlayerMoveData lastMove,
                                                                  final double yDistanceAboveLimit,
                                                                  final double hDistanceAboveLimit) {
         if (!isGroundedVerticalVelocityContext(player, from, to, thisMove)) {
@@ -3639,12 +3766,33 @@ public class SurvivalFly extends Check {
             tags.add("grounded_vertical_velocity_y_model");
             return true;
         }
+        if (acceptsGroundedVerticalVelocityGravityContinuationModel(thisMove, lastMove, yDistanceAboveLimit)) {
+            tags.add("grounded_vertical_velocity_gravity_continuation_model");
+            return true;
+        }
         if (acceptsGroundedBouncyVerticalVelocityModel(player, from, to, thisMove, yDistanceAboveLimit)) {
             tags.add("grounded_bouncy_vertical_velocity_model");
             return true;
         }
         tags.add("grounded_vertical_velocity_y_model_miss");
         return false;
+    }
+
+    private boolean acceptsGroundedVerticalVelocityGravityContinuationModel(final PlayerMoveData thisMove,
+                                                                            final PlayerMoveData lastMove,
+                                                                            final double yDistanceAboveLimit) {
+        /*
+         * Velocity/collision model: when vertical server velocity is truncated by
+         * collision, the next packet can match vanilla gravity continuation from
+         * the previous move better than the live Bukkit velocity vector.
+         */
+        if (!lastMove.toIsValid) {
+            return false;
+        }
+        final double gravityModel = getAirInertiaVerticalModel(lastMove);
+        return matchesVerticalModel(thisMove.yDistance, gravityModel, AIR_INERTIA_VERTICAL_EPSILON)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - gravityModel)
+                        + AIR_INERTIA_VERTICAL_EPSILON;
     }
 
     private boolean acceptsGroundedBouncyVerticalVelocityModel(final Player player,
@@ -4335,6 +4483,7 @@ public class SurvivalFly extends Check {
         return acceptsWaterHorizontalModel(player, data, from, to, thisMove, hDistanceAboveLimit, false);
     }
 
+    // Climbable models: vines, ladders, and scaffolding share climbable physics with surface-specific caps.
     private ClimbableSurfaceModel getClimbableSurfaceModel(final PlayerLocation from, final PlayerLocation to) {
         if (isScaffoldingNear(from, to)) {
             return ClimbableSurfaceModel.SCAFFOLDING;
@@ -4425,7 +4574,40 @@ public class SurvivalFly extends Check {
         if (acceptsBaseClimbableHorizontalModel(from, to, thisMove, hDistanceAboveLimit)) {
             return true;
         }
+        if (acceptsClimbableEntryCarryHorizontalModel(from, to, thisMove, hDistanceAboveLimit)) {
+            return true;
+        }
         return acceptsClimbableJumpCarryHorizontalModel(from, to, thisMove, lastMove, hDistanceAboveLimit);
+    }
+
+    private boolean acceptsClimbableEntryCarryHorizontalModel(final PlayerLocation from, final PlayerLocation to,
+                                                              final PlayerMoveData thisMove,
+                                                              final double hDistanceAboveLimit) {
+        final boolean climbable = from.isOnClimbable() || to.isOnClimbable()
+                || thisMove.from.onClimbable || thisMove.to.onClimbable;
+        if (!climbable
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid
+                || Math.abs(thisMove.yDistance) > CLIMBABLE_VERTICAL_PRECISION_GRACE
+                || !(from.isOnGroundOrResetCond() || to.isOnGroundOrResetCond()
+                        || thisMove.from.onGroundOrResetCond || thisMove.to.onGroundOrResetCond)) {
+            return false;
+        }
+        /*
+         * Climbable model: entering vines/ladders can keep one ground-input
+         * horizontal packet while vertical motion is clamped to zero.
+         */
+        final ClimbableSurfaceModel model = getClimbableSurfaceModel(from, to);
+        final double limit = Math.max(getClimbableHorizontalModelLimit(model, thisMove),
+                CLIMBABLE_ENTRY_HORIZONTAL_CARRY);
+        if (thisMove.hDistance <= limit
+                && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
+                        limit, model.horizontalResidual)) {
+            tags.add(model.tag + "_entry_horizontal_model");
+            return true;
+        }
+        tags.add(model.tag + "_entry_horizontal_model_miss");
+        return false;
     }
 
     private boolean acceptsClimbableJumpCarryHorizontalModel(final PlayerLocation from, final PlayerLocation to,
@@ -4668,6 +4850,43 @@ public class SurvivalFly extends Check {
         return yDistanceAboveLimit <= CURRENT_SERVER_VELOCITY_VERTICAL_OVER_GRACE
                 && hDistanceAboveLimit <= CURRENT_SERVER_VELOCITY_HORIZONTAL_OVER_GRACE
                 && Math.abs(thisMove.yDistance - player.getVelocity().getY()) <= CURRENT_SERVER_VELOCITY_VERTICAL_MATCH_GRACE;
+    }
+
+    private boolean isQueuedVelocityVerticalInertiaHandoffModel(final Player player, final MovingData data,
+                                                                final PlayerLocation from, final PlayerLocation to,
+                                                                final PlayerMoveData thisMove,
+                                                                final PlayerMoveData lastMove,
+                                                                final double yDistanceAboveLimit,
+                                                                final double hDistanceAboveLimit) {
+        /*
+         * Velocity/firework handoff model: the horizontal velocity packet can be
+         * visible one tick before the vertical prediction decays. In that case Y
+         * should remain inside the envelope between previous Y and next vanilla
+         * gravity Y, not inside a flat post-failure grace.
+         */
+        if (Bridge1_9.isGliding(player)
+                || !lastMove.toIsValid
+                || thisMove.verVelUsed.size() > 0
+                || hDistanceAboveLimit > Magic.PREDICTION_EPSILON
+                || thisMove.hDistance < QUEUED_VELOCITY_VERTICAL_INERTIA_MIN_H
+                || !(data.getHorizontalVelocityTracker().hasQueued()
+                        || tags.contains("hvel_current") || tags.contains("hvel"))
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        final double gravityY = getAirInertiaVerticalModel(lastMove);
+        final double lower = Math.min(gravityY, lastMove.yDistance) - QUEUED_VELOCITY_VERTICAL_INERTIA_RESIDUAL;
+        final double upper = Math.max(gravityY, lastMove.yDistance) + QUEUED_VELOCITY_VERTICAL_INERTIA_RESIDUAL;
+        final double overLimit = Math.abs(thisMove.yAllowedDistance - upper)
+                + QUEUED_VELOCITY_VERTICAL_INERTIA_RESIDUAL;
+        final boolean accepted = thisMove.yDistance >= lower
+                && thisMove.yDistance <= upper
+                && yDistanceAboveLimit <= overLimit;
+        if (accepted) {
+            tags.add("queued_velocity_vertical_inertia_handoff_model");
+        }
+        return accepted;
     }
 
     private boolean isQueuedVelocityVerticalPacketOrderModel(final Player player, final MovingData data,
@@ -5057,6 +5276,36 @@ public class SurvivalFly extends Check {
             model = Math.max(model, lastMove.yDistance);
         }
         return model;
+    }
+
+    private boolean acceptsElytraEquippedGlideExitVerticalModel(final Player player,
+                                                                final PlayerMoveData thisMove,
+                                                                final PlayerMoveData lastMove,
+                                                                final double yDistanceAboveLimit,
+                                                                final double hDistanceAboveLimit) {
+        /*
+         * Elytra model: Bukkit can clear gliding one packet before the client
+         * applies normal air gravity. Keep the last glide Y for exactly this
+         * transition instead of treating it as a generic vertical grace.
+         */
+        if (!Bridge1_9.isWearingElytra(player)
+                || Bridge1_9.isGliding(player)
+                || !lastMove.toIsValid
+                || lastMove.yDistance >= -Magic.PREDICTION_EPSILON
+                || hDistanceAboveLimit > GLIDING_HORIZONTAL_PRECISION_GRACE
+                || !(tags.contains("hvel_current") || tags.contains("hvel"))
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        if (matchesVerticalModel(thisMove.yDistance, lastMove.yDistance,
+                ELYTRA_EQUIPPED_GLIDE_EXIT_VERTICAL_MATCH)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - lastMove.yDistance)
+                        + ELYTRA_EQUIPPED_GLIDE_EXIT_VERTICAL_MATCH) {
+            tags.add("elytra_equipped_glide_exit_vertical_model");
+            return true;
+        }
+        tags.add("elytra_equipped_glide_exit_vertical_model_miss");
+        return false;
     }
 
     private boolean acceptsElytraEquippedVelocityHandoffVerticalModel(final Player player,
@@ -5739,14 +5988,21 @@ public class SurvivalFly extends Check {
                 || hDistanceAboveLimit > model.horizontalResidual) {
             return false;
         }
+        final double descendLimit = getClimbableDescendModelLimit(model, thisMove);
+        final double descendOverLimit = Math.max(model.descendOverLimit,
+                Math.max(0.0D, thisMove.yAllowedDistance + descendLimit)
+                        + model.verticalPrecision);
         final boolean accepted = yDistanceAboveLimit <= model.verticalPrecision
                 || thisMove.yDistance >= -Magic.PREDICTION_EPSILON
                 && thisMove.yDistance <= model.ascendLimit
-                || thisMove.yDistance >= -model.descendLimit
+                || thisMove.yDistance >= -descendLimit
                 && thisMove.yDistance <= Magic.PREDICTION_EPSILON
-                && yDistanceAboveLimit <= model.descendOverLimit;
+                && yDistanceAboveLimit <= descendOverLimit;
         if (accepted) {
             tags.add(model.tag + "_vertical_model");
+            if (descendOverLimit > model.descendOverLimit) {
+                tags.add(model.tag + "_descend_clamp_vertical_model");
+            }
         }
         return accepted;
     }
@@ -5785,6 +6041,18 @@ public class SurvivalFly extends Check {
                 && thisMove.yDistance <= surfaceModel
                 && yDistanceAboveLimit <= getModelOverLimit(thisMove.yAllowedDistance, surfaceModel, WATER_VERTICAL_MODEL_EPSILON)) {
             tags.add("water_surface_vertical_model");
+            return true;
+        }
+        if (surfaceLike
+                && thisMove.yAllowedDistance > Magic.PREDICTION_EPSILON
+                && thisMove.yAllowedDistance <= surfaceModel
+                && Math.abs(thisMove.yDistance) <= WATER_VERTICAL_MODEL_EPSILON
+                && yDistanceAboveLimit <= thisMove.yAllowedDistance + WATER_VERTICAL_MODEL_EPSILON) {
+            /*
+             * Water model: surface/reset collisions can clamp the vertical packet
+             * to zero while buoyancy predicted an upward swim step.
+             */
+            tags.add("water_surface_still_vertical_model");
             return true;
         }
         if (setbackLike && thisMove.yDistance <= surfaceModel
@@ -7402,360 +7670,54 @@ public class SurvivalFly extends Check {
     private void logConsoleDetails(final double result,
                                    final Player player, final PlayerLocation from, final PlayerLocation to,
                                    final Location setback,
-                                   final MovingData data, final MovingConfig cc, final IPlayerData pData,
+                                   final MovingData data, final IPlayerData pData,
                                    final PlayerMoveData thisMove, final PlayerMoveData lastMove,
                                    final double hAllowedDistance, final double hDistanceAboveLimit,
-                                   final double hFreedom, final double yAllowedDistance,
-                                   final double yDistanceAboveLimit,
+                                   final double yAllowedDistance, final double yDistanceAboveLimit,
                                    final boolean fromOnGround, final boolean resetFrom,
                                    final boolean toOnGround, final boolean resetTo,
                                    final int tick, final long now, final int multiMoveCount,
                                    final boolean isNormalOrPacketSplitMove) {
-        final StringBuilder builder = new StringBuilder(1000);
-        builder.append("[NCP][SurvivalFly][detail] player=").append(player.getName())
-                .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
-                .append(" bedrock=").append(isBedrockPlayer(player, pData))
-                .append(" bedrockData=").append(pData.isBedrockPlayer())
-                .append(" uuid=").append(player.getUniqueId())
-                .append(" client=").append(pData.getClientVersion())
-                .append(" movementClient=").append(getMovementClientVersion(pData))
-                .append(" tick=").append(tick)
-                .append(" now=").append(now)
-                .append(" moveCount=").append(data.getPlayerMoveCount())
-                .append(" multiMove=").append(multiMoveCount)
-                .append(" packetSplit=").append(isNormalOrPacketSplitMove)
-                .append(" movementMode=").append(formatMovementMode(player, data, from, to, thisMove,
-                        fromOnGround, resetFrom, toOnGround, resetTo))
-                .append(" subcheck=").append(getViolationSubCheck(player, from, to, data))
-                .append(" summary=").append(formatReadableDebugSummary(player, pData, data, from, to, thisMove,
-                        lastMove, hDistanceAboveLimit, yDistanceAboveLimit, fromOnGround, resetFrom, toOnGround, resetTo))
-                .append(" addVL=").append(StringUtil.fdec3.format(result))
-                .append(" totalVL=").append(StringUtil.fdec3.format(data.survivalFlyVL))
-                .append(" setback=").append(formatBukkitLocation(setback))
-                .append(" hDist=").append(StringUtil.fdec6.format(thisMove.hDistance))
-                .append(" xDist=").append(StringUtil.fdec6.format(thisMove.xDistance))
-                .append(" zDist=").append(StringUtil.fdec6.format(thisMove.zDistance))
-                .append(" hAllowed=").append(StringUtil.fdec6.format(hAllowedDistance))
-                .append(" xAllowed=").append(StringUtil.fdec6.format(thisMove.xAllowedDistance))
-                .append(" zAllowed=").append(StringUtil.fdec6.format(thisMove.zAllowedDistance))
-                .append(" hOver=").append(StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0)))
-                .append(" hFreedom=").append(StringUtil.fdec6.format(hFreedom))
-                .append(" yDist=").append(StringUtil.fdec6.format(thisMove.yDistance))
-                .append(" yAllowed=").append(StringUtil.fdec6.format(yAllowedDistance))
-                .append(" yOver=").append(StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0)))
-                .append(" lastH=").append(lastMove.toIsValid ? StringUtil.fdec6.format(lastMove.hDistance) : "invalid")
-                .append(" lastY=").append(lastMove.toIsValid ? StringUtil.fdec6.format(lastMove.yDistance) : "invalid")
-                .append(" from=").append(formatLocation(from))
-                .append(" to=").append(formatLocation(to))
-                .append(" ground=").append(fromOnGround ? "on" : resetFrom ? "reset" : "air")
-                .append("->").append(toOnGround ? "on" : resetTo ? "reset" : "air")
-                .append(" fromFlags=").append(formatMoveFlags(thisMove))
-                .append(" lastFlags=").append(formatMoveFlags(lastMove))
-                .append(" impulse=").append(thisMove.hasImpulse)
-                .append('/').append(thisMove.forwardImpulse)
-                .append('/').append(thisMove.strafeImpulse)
-                .append(" collideXYZ=").append(thisMove.collideX).append('/').append(thisMove.collideY).append('/').append(thisMove.collideZ)
-                .append(" collideH=").append(thisMove.collidesHorizontally)
-                .append(" minorHCollide=").append(thisMove.negligibleHorizontalCollision)
-                .append(" playerState=sprint:").append(player.isSprinting())
-                .append(",sneak:").append(player.isSneaking())
-                .append(",fly:").append(player.isFlying())
-                .append(",allowFlight:").append(player.getAllowFlight())
-                .append(",vehicle:").append(player.isInsideVehicle())
-                .append(",gliding:").append(Bridge1_9.isGliding(player))
-                .append(",elytra:").append(Bridge1_9.isWearingElytra(player))
-                .append(",walkSpeed:").append(StringUtil.fdec3.format(player.getWalkSpeed()))
-                .append(" medium=water:").append(StringUtil.fdec3.format(thisMove.submergedWaterHeight))
-                .append(",lava:").append(StringUtil.fdec3.format(thisMove.submergedLavaHeight))
-                .append(",friction:").append(StringUtil.fdec3.format(data.lastFrictionHorizontal)).append("->").append(StringUtil.fdec3.format(data.nextFrictionHorizontal))
-                .append(",stuckH:").append(StringUtil.fdec3.format(data.lastStuckInBlockHorizontal)).append("->").append(StringUtil.fdec3.format(data.nextStuckInBlockHorizontal))
-                .append(" speedData=walk:").append(StringUtil.fdec3.format(data.walkSpeed)).append("->").append(StringUtil.fdec3.format(data.nextWalkSpeed))
-                .append(",speedTick:").append(data.speedTick)
-                .append(",jumpDelay:").append(data.jumpDelay)
-                .append(",fireworkBoost:").append(data.fireworksBoostDuration)
-                .append(",setbackAge:").append(data.timeSinceSetBack)
-                .append(" jumpPhase=").append(data.sfJumpPhase)
-                .append(" liftOff=").append(data.liftOffEnvelope.name())
-                .append(" lastValid=").append(lastMove.toIsValid)
-                .append(" correctedPre=").append(formatCorrectedPre(thisMove))
-                .append(" correctedPost=").append(formatCorrectedPost(thisMove))
-                .append(" hiddenIdx=").append(thisMove.hiddenDistanceIndex).append('/').append(thisMove.hiddenYDistanceIndex)
-                .append(" stopMotion=").append(thisMove.possibleStopMotion)
-                .append(" vVelUsed=").append(thisMove.verVelUsed)
-                .append(" velQueued=").append(formatVelocity(data))
-                .append(" movementModel=").append(formatMovementModel(thisMove, hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit))
-                .append(" modelProbe=").append(formatMovementModelProbe(player, pData, data, from, to, thisMove, lastMove,
-                        hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit))
-                .append(" elytraModel=").append(formatElytraModel(player, from, to, data, thisMove, hAllowedDistance, yAllowedDistance))
-                .append(" inputModel=").append(formatInputModel(data, thisMove))
-                .append(" environment=").append(formatEnvironment(from, to, thisMove))
-                .append(" config=").append(formatConfig(cc))
-                .append(" runtime=").append(formatRuntimeState(player, pData))
-                .append(" bedrockBridge=").append(formatBedrockBridgeDetails(player))
-                .append(" tags=").append(StringUtil.join(tags, "+"));
-        player.getServer().getLogger().info(builder.toString());
-    }
-
-    private String formatReadableDebugSummary(final Player player, final IPlayerData pData,
-                                              final MovingData data, final PlayerLocation from,
-                                              final PlayerLocation to, final PlayerMoveData move,
-                                              final PlayerMoveData lastMove,
-                                              final double hDistanceAboveLimit,
-                                              final double yDistanceAboveLimit,
-                                              final boolean fromOnGround, final boolean resetFrom,
-                                              final boolean toOnGround, final boolean resetTo) {
-        final MovementModelBranch branch = selectExplicitMovementModel(player, pData, data, from, to, move, lastMove);
-        return getViolationSubCheck(player, from, to, data).toLowerCase(Locale.ROOT)
-                + "{mode=" + formatMovementMode(player, data, from, to, move,
-                        fromOnGround, resetFrom, toOnGround, resetTo).toLowerCase(Locale.ROOT)
-                + ",model=" + branch.tag
-                + ",axis=" + getViolationAxis(move).toLowerCase(Locale.ROOT)
-                + ",hOver=" + StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0D))
-                + ",yOver=" + StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0D))
-                + ",tags=" + getPrimaryReadableTags()
-                + "}";
-    }
-
-    private String getPrimaryReadableTags() {
-        final StringBuilder builder = new StringBuilder(120);
-        int count = 0;
-        for (final String tag : tags) {
-            if (tag.startsWith("subcheck_") || tag.startsWith("branch_")
-                    || tag.startsWith("model_") || tag.startsWith("diag_")) {
-                if (count > 0) {
-                    builder.append('+');
-                }
-                builder.append(tag);
-                if (++count == 5) {
-                    break;
-                }
-            }
-        }
-        return builder.length() == 0 ? "none" : builder.toString();
-    }
-
-    private String formatMovementMode(final Player player, final MovingData data,
-                                      final PlayerLocation from, final PlayerLocation to,
-                                      final PlayerMoveData move,
-                                      final boolean fromOnGround, final boolean resetFrom,
-                                      final boolean toOnGround, final boolean resetTo) {
-        if (player.isInsideVehicle()) {
-            return player.getVehicle() == null ? "VEHICLE" : "VEHICLE_" + player.getVehicle().getType().name();
-        }
-        if (Bridge1_9.isGliding(player)) {
-            return data.fireworksBoostDuration > 0 ? "ELYTRA_FIREWORK" : "ELYTRA_GLIDING";
-        }
-        if (from.isInWater() || to.isInWater() || move.from.inWater || move.to.inWater) {
-            return "WATER";
-        }
-        if (from.isInLava() || to.isInLava() || move.from.inLava || move.to.inLava) {
-            return "LAVA";
-        }
-        if (from.isOnClimbable() || to.isOnClimbable() || move.from.onClimbable || move.to.onClimbable) {
-            return "CLIMBABLE";
-        }
-        if (Bridge1_9.isWearingElytra(player)) {
-            return fromOnGround || resetFrom || toOnGround || resetTo ? "ELYTRA_EQUIPPED_GROUND" : "ELYTRA_EQUIPPED_AIR";
-        }
-        if (from.isInWeb() || to.isInWeb() || move.from.inWeb || move.to.inWeb) {
-            return "WEB";
-        }
-        if (from.isInBerryBush() || to.isInBerryBush() || move.from.inBerryBush || move.to.inBerryBush) {
-            return "BERRY_BUSH";
-        }
-        if (from.isInPowderSnow() || to.isInPowderSnow() || move.from.inPowderSnow || move.to.inPowderSnow) {
-            return "POWDER_SNOW";
-        }
-        if (fromOnGround || resetFrom || toOnGround || resetTo || move.from.onGroundOrResetCond || move.to.onGroundOrResetCond) {
-            return "GROUND";
-        }
-        return "AIR";
-    }
-
-    private String formatMovementModel(final PlayerMoveData move,
-                                       final double hAllowedDistance, final double hDistanceAboveLimit,
-                                       final double yAllowedDistance, final double yDistanceAboveLimit) {
-        final double xOver = move.xDistance - move.xAllowedDistance;
-        final double yOver = move.yDistance - yAllowedDistance;
-        final double zOver = move.zDistance - move.zAllowedDistance;
-        final double hOverRaw = move.hDistance - hAllowedDistance;
-        final StringBuilder builder = new StringBuilder(320);
-        builder.append("actual=").append(formatVector(move.xDistance, move.yDistance, move.zDistance))
-                .append(",allowed=").append(formatVector(move.xAllowedDistance, yAllowedDistance, move.zAllowedDistance))
-                .append(",overVector=").append(formatVector(xOver, yOver, zOver))
-                .append(",hOverRaw=").append(StringUtil.fdec6.format(hOverRaw))
-                .append(",hOverApplied=").append(StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0)))
-                .append(",yOverRaw=").append(StringUtil.fdec6.format(yOver))
-                .append(",yOverApplied=").append(StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0)))
-                .append(",ratio=h:").append(formatRatio(move.hDistance, hAllowedDistance))
-                .append(",x:").append(formatRatio(Math.abs(move.xDistance), Math.abs(move.xAllowedDistance)))
-                .append(",y:").append(formatRatio(Math.abs(move.yDistance), Math.abs(yAllowedDistance)))
-                .append(",z:").append(formatRatio(Math.abs(move.zDistance), Math.abs(move.zAllowedDistance)))
-                .append(",distSq=").append(StringUtil.fdec6.format(move.distanceSquared))
-                .append(",modelFlying=").append(move.modelFlying == null ? "none" : move.modelFlying.getId())
-                .append(",flyCheck=").append(move.flyCheck == null ? "none" : move.flyCheck.name());
-        return builder.toString();
-    }
-
-    private String formatMovementModelProbe(final Player player, final IPlayerData pData, final MovingData data,
-                                            final PlayerLocation from, final PlayerLocation to,
-                                            final PlayerMoveData move, final PlayerMoveData lastMove,
-                                            final double hAllowedDistance, final double hDistanceAboveLimit,
-                                            final double yAllowedDistance, final double yDistanceAboveLimit) {
-        // Diagnostic info: show candidate model boundaries even when no allowance is granted.
-        final MovementModelBranch branch = selectExplicitMovementModel(player, pData, data, from, to, move, lastMove);
-        final StringBuilder builder = new StringBuilder(520);
-        builder.append("selected=").append(branch.tag)
-                .append(",hOver=").append(StringUtil.fdec6.format(Math.max(hDistanceAboveLimit, 0.0D)))
-                .append(",yOver=").append(StringUtil.fdec6.format(Math.max(yDistanceAboveLimit, 0.0D)));
-        if (!lastMove.toIsValid) {
-            builder.append(",lastInvalid{").append(formatLastInvalidProbe(player, move, hAllowedDistance, yAllowedDistance)).append('}');
-        }
-        if (isPartialSupportNear(from, to)) {
-            builder.append(",partial{").append(formatPartialSupportProbe(from, to, move, lastMove,
-                    hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit)).append('}');
-        }
-        if (Bridge1_9.isWearingElytra(player) || Bridge1_9.isGliding(player)) {
-            builder.append(",elytra{").append(formatElytraProbe(player, data, from, to, move, lastMove)).append('}');
-        }
-        if (isJumpDiagnosticProbe(data, move)) {
-            builder.append(",jump{").append(formatJumpProbe(data, move, hAllowedDistance, yAllowedDistance)).append('}');
-        }
-        if (isVelocityDiagnosticProbe(data, move)) {
-            builder.append(",velocity{").append(formatVelocityProbe(player, data, move)).append('}');
-        }
-        return builder.toString();
-    }
-
-    private String formatLastInvalidProbe(final Player player, final PlayerMoveData move,
-                                          final double hAllowedDistance, final double yAllowedDistance) {
-        final Vector velocity = player.getVelocity();
-        return "actual=" + formatVector(move.xDistance, move.yDistance, move.zDistance)
-                + ",allowed=" + formatVector(move.xAllowedDistance, yAllowedDistance, move.zAllowedDistance)
-                + ",currentVelocity=" + formatVector(velocity)
-                + ",hRatio=" + formatRatio(move.hDistance, hAllowedDistance)
-                + ",yRatio=" + formatRatio(Math.abs(move.yDistance), Math.abs(yAllowedDistance));
-    }
-
-    private String formatPartialSupportProbe(final PlayerLocation from, final PlayerLocation to,
-                                             final PlayerMoveData move, final PlayerMoveData lastMove,
-                                             final double hAllowedDistance, final double hDistanceAboveLimit,
-                                             final double yAllowedDistance, final double yDistanceAboveLimit) {
-        final double horizontalLimit = getPartialSupportHorizontalModelLimit(from, to, move, lastMove);
-        final double verticalLimit = getPartialSupportVerticalModelLimit(from, to, move);
-        final double verticalClamp = getPartialSupportVerticalClampModel(move.yDistance);
-        final double clampDiff = getPartialSupportVerticalClampDifference(move.yDistance);
-        final double landingClamp = getPartialSupportLandingClampFraction(to);
-        final double landingDistance = landingClamp >= 0.0D ? to.getBlockY() + landingClamp - from.getY() : 0.0D;
-        return "hLimit=" + StringUtil.fdec6.format(horizontalLimit)
-                + ",hModelOver=" + StringUtil.fdec6.format(getModelOverLimit(hAllowedDistance,
-                        horizontalLimit, PARTIAL_SUPPORT_HORIZONTAL_MODEL_EPSILON))
-                + ",vLimit=" + StringUtil.fdec6.format(verticalLimit)
-                + ",vModelOver=" + StringUtil.fdec6.format(getModelOverLimit(yAllowedDistance,
-                        verticalLimit, PARTIAL_SUPPORT_VERTICAL_MODEL_EPSILON))
-                + ",clamp=" + StringUtil.fdec6.format(verticalClamp)
-                + ",clampDiff=" + StringUtil.fdec6.format(clampDiff)
-                + ",clampOver=" + StringUtil.fdec6.format(verticalClamp > 0.0D
-                        ? getModelOverLimit(yAllowedDistance, -verticalClamp, PARTIAL_SUPPORT_VERTICAL_CLAMP_EPSILON) : 0.0D)
-                + ",landingClamp=" + (landingClamp >= 0.0D ? StringUtil.fdec6.format(landingClamp) : "none")
-                + ",landingDiff=" + (landingClamp >= 0.0D
-                        ? StringUtil.fdec6.format(Math.abs(move.yDistance - landingDistance)) : "none")
-                + ",hMiss=" + (move.hDistance > horizontalLimit
-                        || hDistanceAboveLimit > getModelOverLimit(hAllowedDistance, horizontalLimit, PARTIAL_SUPPORT_HORIZONTAL_MODEL_EPSILON))
-                + ",yMiss=" + (yDistanceAboveLimit > getModelOverLimit(yAllowedDistance, verticalLimit, PARTIAL_SUPPORT_VERTICAL_MODEL_EPSILON));
-    }
-
-    private double getPartialSupportVerticalClampDifference(final double yDistance) {
-        final double descend = -yDistance;
-        if (descend <= Magic.PREDICTION_EPSILON) {
-            return 0.0D;
-        }
-        final double clamp = Math.round(descend / PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT)
-                * PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT;
-        return Math.abs(descend - clamp);
-    }
-
-    private String formatElytraProbe(final Player player, final MovingData data,
-                                     final PlayerLocation from, final PlayerLocation to,
-                                     final PlayerMoveData move, final PlayerMoveData lastMove) {
-        final Vector velocity = player.getVelocity();
-        final boolean transition = isElytraEquippedTransitionContext(player, data, from, to, move, lastMove);
-        return "gliding=" + Bridge1_9.isGliding(player)
-                + ",wearing=" + Bridge1_9.isWearingElytra(player)
-                + ",transition=" + transition
-                + ",firework=" + data.fireworksBoostDuration
-                + ",pitchBand=" + getElytraPitchBand(to.getPitch())
-                + ",velH=" + StringUtil.fdec6.format(MathUtil.dist(velocity.getX(), velocity.getZ()))
-                + ",velY=" + StringUtil.fdec6.format(velocity.getY())
-                + ",resH=" + StringUtil.fdec6.format(MathUtil.dist(move.xDistance - velocity.getX(), move.zDistance - velocity.getZ()))
-                + ",resY=" + StringUtil.fdec6.format(Math.abs(move.yDistance - velocity.getY()))
-                + ",lastY=" + (lastMove.toIsValid ? StringUtil.fdec6.format(lastMove.yDistance) : "invalid");
+        final MovementModelBranch modelBranch = selectExplicitMovementModel(player, pData, data, from, to, thisMove, lastMove);
+        final String movementMode = SurvivalFlyDiagnostics.formatMovementMode(player, data, from, to, thisMove,
+                fromOnGround, resetFrom, toOnGround, resetTo);
+        final String subcheck = getViolationSubCheck(player, from, to, data);
+        final String axis = getViolationAxis(thisMove);
+        final boolean partialSupport = isPartialSupportNear(from, to);
+        final double partialHorizontalLimit = partialSupport ? getPartialSupportHorizontalModelLimit(from, to, thisMove, lastMove) : 0.0D;
+        final double partialVerticalLimit = partialSupport ? getPartialSupportVerticalModelLimit(from, to, thisMove) : 0.0D;
+        final double partialVerticalClamp = partialSupport ? getPartialSupportVerticalClampModel(thisMove.yDistance) : 0.0D;
+        final boolean jumpProbe = isJumpDiagnosticProbe(data, thisMove);
+        player.getServer().getLogger().info(SurvivalFlyDiagnostics.formatDetail(player, from, to, setback,
+                data, pData, thisMove, lastMove, isBedrockPlayer(player, pData),
+                String.valueOf(getMovementClientVersion(pData)),
+                movementMode,
+                subcheck,
+                SurvivalFlyDiagnostics.formatReadableDebugSummary(subcheck, movementMode, modelBranch.tag, axis,
+                        hDistanceAboveLimit, yDistanceAboveLimit, tags),
+                result, hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit,
+                fromOnGround, resetFrom, toOnGround, resetTo, tick, now, multiMoveCount,
+                isNormalOrPacketSplitMove,
+                SurvivalFlyDiagnostics.formatCompactModelProbe(modelBranch.tag, axis,
+                        hDistanceAboveLimit, yDistanceAboveLimit, lastMove.toIsValid, player.getVelocity(),
+                        data.getHorizontalVelocityTracker().hasQueued(), !thisMove.verVelUsed.isEmpty(),
+                        partialSupport, partialSupport ? getPartialSupportTypeTag(from, to) : "none",
+                        partialHorizontalLimit, partialVerticalLimit, partialVerticalClamp,
+                        jumpProbe, thisMove.isJump, thisMove.isStepUp, thisMove.couldStepUp, data.sfJumpPhase),
+                SurvivalFlyDiagnostics.formatElytraModel(player, from, to, data, thisMove,
+                        hAllowedDistance, yAllowedDistance, getElytraPitchBand(to.getPitch()),
+                        getYawDelta(from.getYaw(), to.getYaw())),
+                StringUtil.join(tags, "+")));
     }
 
     private boolean isJumpDiagnosticProbe(final MovingData data, final PlayerMoveData move) {
         return move.isJump || move.couldStepUp || move.isStepUp || data.sfJumpPhase > 0 || tags.contains("jump_env");
     }
 
-    private String formatJumpProbe(final MovingData data, final PlayerMoveData move,
-                                   final double hAllowedDistance, final double yAllowedDistance) {
-        return "isJump=" + move.isJump
-                + ",stepUp=" + move.isStepUp + '/' + move.couldStepUp
-                + ",phase=" + data.sfJumpPhase
-                + ",lift=" + data.liftOffEnvelope.name()
-                + ",actualY=" + StringUtil.fdec6.format(move.yDistance)
-                + ",allowedY=" + StringUtil.fdec6.format(yAllowedDistance)
-                + ",halfBlockDelta=" + StringUtil.fdec6.format(Math.abs(move.yDistance - BEDROCK_HALF_STEP_VERTICAL_MOVE))
-                + ",actualH=" + StringUtil.fdec6.format(move.hDistance)
-                + ",allowedH=" + StringUtil.fdec6.format(hAllowedDistance);
-    }
-
     private boolean isVelocityDiagnosticProbe(final MovingData data, final PlayerMoveData move) {
         return data.getHorizontalVelocityTracker().hasQueued()
                 || !move.verVelUsed.isEmpty()
                 || tags.contains("hvel_current") || tags.contains("hvel");
-    }
-
-    private String formatVelocityProbe(final Player player, final MovingData data, final PlayerMoveData move) {
-        final Vector velocity = player.getVelocity();
-        return "queuedH=" + data.getHorizontalVelocityTracker().hasQueued()
-                + ",usedY=" + move.verVelUsed
-                + ",current=" + formatVector(velocity)
-                + ",actualMinusCurrent=" + formatVector(move.xDistance - velocity.getX(),
-                        move.yDistance - velocity.getY(), move.zDistance - velocity.getZ());
-    }
-
-    private String formatElytraModel(final Player player, final PlayerLocation from, final PlayerLocation to,
-                                     final MovingData data, final PlayerMoveData move,
-                                     final double hAllowedDistance, final double yAllowedDistance) {
-        if (!Bridge1_9.isGliding(player) && !Bridge1_9.isWearingElytra(player)) {
-            return "none";
-        }
-        final Vector look = TrigUtil.getLookingDirection(to, player);
-        final Vector velocity = player.getVelocity();
-        final double actualVelocityDx = move.xDistance - velocity.getX();
-        final double actualVelocityDy = move.yDistance - velocity.getY();
-        final double actualVelocityDz = move.zDistance - velocity.getZ();
-        final double allowedVelocityDx = move.xAllowedDistance - velocity.getX();
-        final double allowedVelocityDy = yAllowedDistance - velocity.getY();
-        final double allowedVelocityDz = move.zAllowedDistance - velocity.getZ();
-        final StringBuilder builder = new StringBuilder(420);
-        builder.append("pitch=").append(StringUtil.fdec3.format(from.getPitch())).append("->").append(StringUtil.fdec3.format(to.getPitch()))
-                .append(",pitchDelta=").append(StringUtil.fdec3.format(to.getPitch() - from.getPitch()))
-                .append(",pitchBand=").append(getElytraPitchBand(to.getPitch()))
-                .append(",yaw=").append(StringUtil.fdec3.format(from.getYaw())).append("->").append(StringUtil.fdec3.format(to.getYaw()))
-                .append(",yawDelta=").append(StringUtil.fdec3.format(getYawDelta(from.getYaw(), to.getYaw())))
-                .append(",look=").append(formatVector(look))
-                .append(",lookH=").append(StringUtil.fdec6.format(MathUtil.dist(look.getX(), look.getZ())))
-                .append(",lookY=").append(StringUtil.fdec6.format(look.getY()))
-                .append(",firework=").append(data.fireworksBoostDuration)
-                .append(",actualH=").append(StringUtil.fdec6.format(move.hDistance))
-                .append(",allowedH=").append(StringUtil.fdec6.format(hAllowedDistance))
-                .append(",actualY=").append(StringUtil.fdec6.format(move.yDistance))
-                .append(",allowedY=").append(StringUtil.fdec6.format(yAllowedDistance))
-                .append(",velocity=").append(formatVector(velocity))
-                .append(",actualMinusVelocity=").append(formatVector(actualVelocityDx, actualVelocityDy, actualVelocityDz))
-                .append(",allowedMinusVelocity=").append(formatVector(allowedVelocityDx, allowedVelocityDy, allowedVelocityDz));
-        return builder.toString();
     }
 
     private double getYawDelta(final float fromYaw, final float toYaw) {
@@ -7767,278 +7729,6 @@ public class SurvivalFly extends Check {
             delta += 360.0D;
         }
         return delta;
-    }
-
-    private String formatInputModel(final MovingData data, final PlayerMoveData move) {
-        final PlayerKeyboardInput input = data.input;
-        final StringBuilder builder = new StringBuilder(260);
-        builder.append("current=").append(input.getForwardDir()).append('/').append(input.getStrafeDir())
-                .append('(').append(StringUtil.fdec3.format(input.getForward())).append('/')
-                .append(StringUtil.fdec3.format(input.getStrafe())).append(')')
-                .append(",last=(").append(StringUtil.fdec3.format(input.getLastForward())).append('/')
-                .append(StringUtil.fdec3.format(input.getLastStrafe())).append(')')
-                .append(",inputSq=").append(StringUtil.fdec3.format(input.getHorizontalInputSquared()))
-                .append(",hasHImpulse=").append(input.hasHorizontalImpulse())
-                .append(",keys=jump:").append(input.isSpaceBarPressed()).append("->").append(input.wasSpaceBarPressed())
-                .append(",sneak:").append(input.isShift()).append("->").append(input.wasShifting())
-                .append(",sprint:").append(input.isSprintingKeyPressed()).append("->").append(input.wasSprintingKeyPressed())
-                .append(",moveImpulse=").append(move.hasImpulse)
-                .append('/').append(move.forwardImpulse)
-                .append('/').append(move.strafeImpulse);
-        return builder.toString();
-    }
-
-    private String formatEnvironment(final PlayerLocation from, final PlayerLocation to, final PlayerMoveData move) {
-        final StringBuilder builder = new StringBuilder(520);
-        builder.append("from{").append(formatRichLocation(from)).append(",trace=").append(formatMoveLocation(move.from)).append('}')
-                .append(" to{").append(formatRichLocation(to)).append(",trace=").append(formatMoveLocation(move.to)).append('}');
-        return builder.toString();
-    }
-
-    private String formatRichLocation(final PlayerLocation location) {
-        try {
-            return "world=" + location.getWorldName()
-                    + ",pos=" + formatLocation(location)
-                    + ",look=" + StringUtil.fdec3.format(location.getYaw()) + "/" + StringUtil.fdec3.format(location.getPitch())
-                    + ",block=" + location.getBlockType()
-                    + ",below=" + location.getBlockTypeBelow()
-                    + ",above=" + location.getBlockTypeAbove()
-                    + ",flags=ground:" + location.isOnGround()
-                    + ",reset:" + location.isResetCond()
-                    + ",water:" + location.isInWater()
-                    + ",lava:" + location.isInLava()
-                    + ",waterlogged:" + location.isInWaterLogged()
-                    + ",climb:" + location.isOnClimbable()
-                    + ",web:" + location.isInWeb()
-                    + ",berry:" + location.isInBerryBush()
-                    + ",powder:" + location.isInPowderSnow()
-                    + ",bubble:" + location.isInBubbleStream()
-                    + ",ice:" + location.isOnIce()
-                    + ",blueIce:" + location.isOnBlueIce()
-                    + ",slime:" + location.isOnSlimeBlock()
-                    + ",honey:" + location.isOnHoneyBlock()
-                    + ",soulSand:" + location.isInSoulSand()
-                    + ",passable:" + location.isPassable()
-                    + ",bbox=" + formatBoundingBox(location.getBoundingBox());
-        }
-        catch (Throwable t) {
-            return "unavailable:" + t.getClass().getSimpleName();
-        }
-    }
-
-    private String formatMoveLocation(final fr.neatmonster.nocheatplus.checks.moving.model.LocationData location) {
-        if (!location.extraPropertiesValid) {
-            return "extra=invalid";
-        }
-        return "extra=ground:" + location.onGround
-                + ",reset:" + location.resetCond
-                + ",liquid:" + location.inLiquid
-                + ",water:" + location.inWater
-                + ",lava:" + location.inLava
-                + ",climb:" + location.onClimbable
-                + ",web:" + location.inWeb
-                + ",berry:" + location.inBerryBush
-                + ",powder:" + location.inPowderSnow
-                + ",touchedPowder:" + location.touchedPowderSnow
-                + ",ice:" + location.onIce
-                + ",blueIce:" + location.onBlueIce
-                + ",slime:" + location.onSlimeBlock
-                + ",honey:" + location.onHoneyBlock
-                + ",soulSand:" + location.inSoulSand
-                + ",bubble:" + location.inBubbleStream
-                + ",bouncy:" + location.onBouncyBlock;
-    }
-
-    private String formatConfig(final MovingConfig cc) {
-        return "strictH:" + cc.survivalFlyStrictHorizontal
-                + ",step:" + StringUtil.fdec3.format(cc.sfStepHeight)
-                + ",yOnGround:" + StringUtil.fdec6.format(cc.yOnGround)
-                + ",hover:" + cc.sfHoverCheck + "/" + cc.sfHoverTicks
-                + ",speedGraceTicks:" + cc.speedGrace;
-    }
-
-    private String formatRuntimeState(final Player player, final IPlayerData pData) {
-        final StringBuilder builder = new StringBuilder(360);
-        builder.append("server=").append(player.getServer().getBukkitVersion())
-                .append(",gameMode=").append(player.getGameMode())
-                .append(",velocity=").append(formatVector(player.getVelocity()))
-                .append(",fall=").append(StringUtil.fdec3.format(player.getFallDistance()))
-                .append(",health=").append(StringUtil.fdec3.format(player.getHealth()))
-                .append(",food=").append(player.getFoodLevel())
-                .append(",sprintData=").append(pData.isSprinting())
-                .append(",effects=").append(formatPotionEffects(player));
-        return builder.toString();
-    }
-
-    private String formatPotionEffects(final Player player) {
-        final Collection<PotionEffect> effects = player.getActivePotionEffects();
-        if (effects.isEmpty()) {
-            return "none";
-        }
-        final StringBuilder builder = new StringBuilder(160);
-        for (final PotionEffect effect : effects) {
-            if (builder.length() > 0) {
-                builder.append('|');
-            }
-            builder.append(effect.getType().getName())
-                    .append(':').append(effect.getAmplifier())
-                    .append('@').append(effect.getDuration());
-        }
-        return builder.toString();
-    }
-
-    private String formatBedrockBridgeDetails(final Player player) {
-        return "floodgate{" + formatFloodgateDetails(player) + "},geyser{" + formatGeyserDetails(player) + "}";
-    }
-
-    private String formatFloodgateDetails(final Player player) {
-        try {
-            final Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-            final Object api = apiClass.getMethod("getInstance").invoke(null);
-            final Object isFloodgatePlayer = apiClass.getMethod("isFloodgatePlayer", java.util.UUID.class).invoke(api, player.getUniqueId());
-            final Object floodgatePlayer = apiClass.getMethod("getPlayer", java.util.UUID.class).invoke(api, player.getUniqueId());
-            if (floodgatePlayer == null) {
-                final StringBuilder builder = new StringBuilder(Boolean.TRUE.equals(isFloodgatePlayer) ? "online,no-player-object" : "none");
-                appendNoArgValue(builder, api, "prefix", "getPlayerPrefix");
-                return builder.toString();
-            }
-            final StringBuilder builder = new StringBuilder("online");
-            builder.append(",isFloodgatePlayer=").append(isFloodgatePlayer);
-            appendNoArgValue(builder, api, "prefix", "getPlayerPrefix");
-            appendNoArgValue(builder, floodgatePlayer, "username", "getUsername");
-            appendNoArgValue(builder, floodgatePlayer, "javaName", "getJavaUsername");
-            appendNoArgValue(builder, floodgatePlayer, "xuid", "getXuid");
-            appendNoArgValue(builder, floodgatePlayer, "version", "getVersion");
-            appendNoArgValue(builder, floodgatePlayer, "device", "getDeviceOs");
-            appendNoArgValue(builder, floodgatePlayer, "input", "getInputMode");
-            appendNoArgValue(builder, floodgatePlayer, "ui", "getUiProfile");
-            appendNoArgValue(builder, floodgatePlayer, "lang", "getLanguageCode");
-            appendNoArgValue(builder, floodgatePlayer, "linked", "isLinked");
-            return builder.toString();
-        }
-        catch (ClassNotFoundException ignored) {
-            return "not-present";
-        }
-        catch (Throwable t) {
-            return "error:" + formatThrowable(t);
-        }
-    }
-
-    private String formatGeyserDetails(final Player player) {
-        try {
-            final Class<?> apiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
-            final Object api = apiClass.getMethod("api").invoke(null);
-            if (api == null) {
-                return "none";
-            }
-            final Object connection = apiClass.getMethod("connectionByUuid", java.util.UUID.class).invoke(api, player.getUniqueId());
-            if (connection == null) {
-                return "none";
-            }
-            final StringBuilder builder = new StringBuilder("online");
-            appendNoArgValue(builder, connection, "protocol", "protocolVersion");
-            appendNoArgValue(builder, connection, "ping", "ping");
-            appendNoArgValue(builder, connection, "formOpen", "hasFormOpen");
-            appendNoArgValue(builder, connection, "joinAddress", "joinAddress");
-            appendNoArgValue(builder, connection, "joinPort", "joinPort");
-            appendNoArgValue(builder, connection, "playFab", "playFabId");
-            return builder.toString();
-        }
-        catch (ClassNotFoundException ignored) {
-            return "not-present";
-        }
-        catch (Throwable t) {
-            return "error:" + formatThrowable(t);
-        }
-    }
-
-    private String formatThrowable(final Throwable t) {
-        if (t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null) {
-            return t.getCause().getClass().getSimpleName();
-        }
-        return t.getClass().getSimpleName();
-    }
-
-    private void appendNoArgValue(final StringBuilder builder, final Object target, final String label, final String methodName) {
-        try {
-            final Object value = target.getClass().getMethod(methodName).invoke(target);
-            builder.append(',').append(label).append('=').append(value);
-        }
-        catch (Throwable ignored) {}
-    }
-
-    private String formatRatio(final double actual, final double allowed) {
-        if (Math.abs(allowed) < 1.0E-9) {
-            return Math.abs(actual) < 1.0E-9 ? "1.000" : "inf";
-        }
-        return StringUtil.fdec3.format(actual / allowed);
-    }
-
-    private String formatVector(final Vector vector) {
-        return formatVector(vector.getX(), vector.getY(), vector.getZ());
-    }
-
-    private String formatVector(final double x, final double y, final double z) {
-        return StringUtil.fdec6.format(x) + "," + StringUtil.fdec6.format(y) + "," + StringUtil.fdec6.format(z);
-    }
-
-    private String formatBoundingBox(final double[] box) {
-        return StringUtil.fdec3.format(box[0]) + "," + StringUtil.fdec3.format(box[1]) + "," + StringUtil.fdec3.format(box[2])
-                + "->" + StringUtil.fdec3.format(box[3]) + "," + StringUtil.fdec3.format(box[4]) + "," + StringUtil.fdec3.format(box[5]);
-    }
-
-    private String formatMoveFlags(final PlayerMoveData move) {
-        if (!move.valid) {
-            return "invalid";
-        }
-        final StringBuilder builder = new StringBuilder(80);
-        builder.append(move.touchedGround ? "tg" : "no-tg")
-                .append(move.touchedGroundWorkaround ? ",tg-workaround" : "")
-                .append(move.fromLostGround ? ",from-lost" : "")
-                .append(move.toLostGround ? ",to-lost" : "")
-                .append(move.headObstructed ? ",head-obstructed" : "")
-                .append(move.bunnyHop ? ",bunny" : "")
-                .append(move.isStepUp ? ",step-up" : "")
-                .append(move.isJump ? ",jump" : "")
-                .append(move.couldStepUp ? ",could-step" : "")
-                .append(move.hasAttackSlowDown ? ",attack-slow" : "")
-                .append(move.hasNoMovementDueToDuplicatePacket ? ",duplicate-packet" : "")
-                .append(move.tridentRelease.decideOptimistically() ? ",trident" : "");
-        return builder.toString();
-    }
-
-    private String formatCorrectedPre(final PlayerMoveData move) {
-        return StringUtil.fdec6.format(move.xCorrectedDistancePre) + ","
-                + StringUtil.fdec6.format(move.yCorrectedDistancePre) + ","
-                + StringUtil.fdec6.format(move.zCorrectedDistancePre);
-    }
-
-    private String formatCorrectedPost(final PlayerMoveData move) {
-        return StringUtil.fdec6.format(move.xCorrectedDistancePost) + ","
-                + StringUtil.fdec6.format(move.zCorrectedDistancePost);
-    }
-
-    private String formatVelocity(final MovingData data) {
-        final StringBuilder builder = new StringBuilder(120);
-        data.addHorizontalVelocity(builder);
-        data.addVerticalVelocity(builder);
-        if (builder.length() == 0) {
-            return "none";
-        }
-        return builder.toString().replace('\n', ' ').trim();
-    }
-
-    private String formatLocation(final PlayerLocation location) {
-        return String.format(Locale.US, "%.3f,%.3f,%.3f", location.getX(), location.getY(), location.getZ());
-    }
-
-    private String formatBukkitLocation(final Location location) {
-        if (location == null) {
-            return "none";
-        }
-        return String.format(Locale.US, "%s@%.3f,%.3f,%.3f/%.3f,%.3f",
-                location.getWorld() == null ? "null" : location.getWorld().getName(),
-                location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch());
     }
 
     /**
@@ -8075,7 +7765,7 @@ public class SurvivalFly extends Check {
 
     private void addViolationModeTag(final Player player, final PlayerLocation from, final PlayerLocation to,
                                      final PlayerMoveData move, final MovingData data) {
-        final String mode = formatMovementMode(player, data, from, to, move,
+        final String mode = SurvivalFlyDiagnostics.formatMovementMode(player, data, from, to, move,
                 from.isOnGround(), from.isResetCond(), to.isOnGround(), to.isResetCond());
         addTag("mode_" + mode.toLowerCase(Locale.ROOT));
     }

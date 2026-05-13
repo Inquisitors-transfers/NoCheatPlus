@@ -51,10 +51,21 @@ import fr.neatmonster.nocheatplus.utilities.location.LocUtil;
 public class NetData extends ACheckData {
 
     private static final long MOVING_TELEPORT_GRACE_MS = 4000L;
+    private static final long MOVING_SERVER_JUMP_RECOVERY_GRACE_MS = 1500L;
     private static final double MOVING_POSITION_MATCH_EPSILON = 0.03125D;
     private static final double MOVING_SERVER_JUMP_DISTANCE = 100.0D;
     private static final double MOVING_SERVER_JUMP_PACKET_DISTANCE = 64.0D;
+    private static final long MOVING_SERVER_JUMP_STALE_PACKET_MODEL_MS = 4000L;
+    private static final double MOVING_SERVER_JUMP_TARGET_MODEL_DISTANCE = 8.0D;
+    private static final double MOVING_STALE_PACKET_HORIZONTAL_BASE = 1.25D;
+    private static final double MOVING_STALE_PACKET_VERTICAL_BASE = 0.75D;
+    private static final double MOVING_STALE_PACKET_VERTICAL_PER_TICK = 0.30D;
+    private static final double MOVING_STALE_PACKET_VERTICAL_MAX = 4.0D;
+    private static final double MOVING_STALE_PACKET_MOTION_MULTIPLIER = 3.0D;
     private static final long MOVING_TELEPORT_COMMAND_PENDING_MS = 15000L;
+    private static final long MOVING_TELEPORT_RESYNC_PENDING_MS = 4000L;
+    private static final double MOVING_TELEPORT_RESYNC_TARGET_DISTANCE = 8.0D;
+    private static final int MOVING_TELEPORT_RESYNC_NORMAL_STALE_PACKET_LIMIT = 2;
 
     // Reentrant lock.
     private final Lock lock = new ReentrantLock();
@@ -69,6 +80,7 @@ public class NetData extends ACheckData {
 
     // Moving
     public double movingVL = 0;
+    // NetMoving diagnostics/model state: remember teleport and server-position packets for packet-order false flags.
     private long lastMovingTeleportTime = 0L;
     private String lastMovingTeleportWorld = null;
     private String lastMovingTeleportCause = "none";
@@ -105,6 +117,7 @@ public class NetData extends ACheckData {
     private double lastServerPositionJumpToZ = 0.0;
     private float lastServerPositionJumpToYaw = 0.0f;
     private float lastServerPositionJumpToPitch = 0.0f;
+    private long lastServerPositionJumpRecoveryUsedTime = 0L;
     private long lastTeleportCommandTime = 0L;
     private String lastTeleportCommand = "none";
     private String lastTeleportCommandWorld = null;
@@ -113,6 +126,19 @@ public class NetData extends ACheckData {
     private double lastTeleportCommandZ = 0.0;
     private float lastTeleportCommandYaw = 0.0f;
     private float lastTeleportCommandPitch = 0.0f;
+    private long lastTeleportResyncMovingDataKey = 0L;
+    private long lastTeleportResyncRequestTime = 0L;
+    private long lastTeleportResyncAppliedKey = 0L;
+    private String lastTeleportResyncReason = "none";
+    private String lastTeleportResyncWorld = null;
+    private double lastTeleportResyncX = 0.0;
+    private double lastTeleportResyncY = 0.0;
+    private double lastTeleportResyncZ = 0.0;
+    private float lastTeleportResyncYaw = 0.0f;
+    private float lastTeleportResyncPitch = 0.0f;
+    private long lastTeleportResyncDroppedPacketLogTime = 0L;
+    private int lastTeleportResyncDroppedPacketCount = 0;
+    private int lastTeleportResyncPendingDropLogCount = 0;
 
     // KeepAliveFrequency
     /**
@@ -128,6 +154,7 @@ public class NetData extends ACheckData {
     public boolean keepAlivePacketIdAvailable = false;
     public boolean keepAlivePreviousPacketIdAvailable = false;
     public boolean keepAliveDuplicateId = false;
+    // KeepAlive diagnostics: record packet shape/thread so async Folia timing is visible in console logs.
     public String keepAlivePacketIdType = "none";
     public int keepAlivePacketLongCount = -1;
     public int keepAlivePacketIntCount = -1;
@@ -342,12 +369,299 @@ public class NetData extends ACheckData {
             && distanceToStored(lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ, packetLocation) <= MOVING_SERVER_JUMP_PACKET_DISTANCE;
     }
 
+    public boolean isWithinServerPositionJumpStalePacketModel(final long now,
+                                                              final Location knownLocation,
+                                                              final Location packetLocation,
+                                                              final DataPacketFlying packetData) {
+        // Teleport model: Folia/async teleports can leave pre-teleport packets in flight after the server moved.
+        return lastServerPositionJumpTime > 0L
+            && now >= lastServerPositionJumpTime
+            && now - lastServerPositionJumpTime <= MOVING_SERVER_JUMP_STALE_PACKET_MODEL_MS
+            && distanceToStored(lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ,
+                    knownLocation) <= MOVING_SERVER_JUMP_TARGET_MODEL_DISTANCE
+            && isStalePacketNearStoredPositionModel(packetLocation, packetData,
+                    lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ,
+                    now - lastServerPositionJumpTime);
+    }
+
+    public boolean consumeServerPositionJumpRecoveryGrace(final long now, final Location knownLocation) {
+        // Folia/death compatibility: allow one stale packet after a server-side jump even if it matches neither endpoint.
+        if (lastServerPositionJumpTime <= 0L
+                || now < lastServerPositionJumpTime
+                || now - lastServerPositionJumpTime > MOVING_SERVER_JUMP_RECOVERY_GRACE_MS
+                || lastServerPositionJumpRecoveryUsedTime == lastServerPositionJumpTime
+                || distanceToStored(lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ, knownLocation) > MOVING_SERVER_JUMP_PACKET_DISTANCE) {
+            return false;
+        }
+        lastServerPositionJumpRecoveryUsedTime = lastServerPositionJumpTime;
+        return true;
+    }
+
     public boolean isWithinTeleportCommandGrace(final long now, final Location knownLocation, final Location packetLocation) {
         return lastTeleportCommandTime > 0L
             && now >= lastTeleportCommandTime
             && now - lastTeleportCommandTime <= MOVING_TELEPORT_COMMAND_PENDING_MS
             && distanceToStored(lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, knownLocation) > MOVING_SERVER_JUMP_DISTANCE
             && distanceToStored(lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation) <= MOVING_SERVER_JUMP_PACKET_DISTANCE;
+    }
+
+    public boolean isWithinTeleportCommandStalePacketModel(final long now,
+                                                          final Location knownLocation,
+                                                          final Location packetLocation,
+                                                          final DataPacketFlying packetData) {
+        // Teleport command model: command plugins can async-teleport before Bukkit's event/order data is visible here.
+        return lastTeleportCommandTime > 0L
+            && now >= lastTeleportCommandTime
+            && now - lastTeleportCommandTime <= MOVING_TELEPORT_COMMAND_PENDING_MS
+            && distanceToStored(lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ,
+                    knownLocation) > MOVING_SERVER_JUMP_DISTANCE
+            && isStalePacketNearStoredPositionModel(packetLocation, packetData,
+                    lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ,
+                    now - lastTeleportCommandTime);
+    }
+
+    public void acceptMovingTeleportResync(final Player player, final Plugin plugin, final MovingData mData,
+                                           final Location knownLocation, final Location packetLocation,
+                                           final DataPacketFlying packetData, final long now, final String reason) {
+        // Teleport model: accepted stale packets are packet-order leftovers, not valid post-teleport history.
+        movingVL *= 0.5;
+        final int queueSizeBeforeClear = getFlyingQueueSize();
+        clearFlyingQueue();
+        if (player == null || plugin == null || mData == null || knownLocation == null) {
+            return;
+        }
+        final long resyncKey = Math.max(lastServerPositionJumpTime, lastTeleportCommandTime);
+        if (resyncKey <= 0L || lastTeleportResyncMovingDataKey == resyncKey) {
+            return;
+        }
+        lastTeleportResyncMovingDataKey = resyncKey;
+        recordPendingTeleportResync(resyncKey, knownLocation, now, reason);
+        logTeleportResyncStalePacketDrop(player, now, knownLocation, packetLocation, packetData,
+                reason, "opened", queueSizeBeforeClear, true);
+        final Location modelLocation = LocUtil.clone(knownLocation);
+        final Object task = SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
+            if (lastTeleportResyncAppliedKey == resyncKey) {
+                return;
+            }
+            Location syncLocation = null;
+            try {
+                syncLocation = player.isOnline() ? player.getLocation() : null;
+            }
+            catch (Throwable ignored) {}
+            // Folia model sync: refresh MovingData only on the player's owning region thread.
+            mData.onExternalTeleportResync(syncLocation != null && syncLocation.getWorld() != null
+                    ? syncLocation : modelLocation);
+            markTeleportResyncApplied(resyncKey);
+            if (shouldLogTeleportResyncSuccessToConsole()) {
+                player.getServer().getLogger().info("[NCP][NetMoving][resync] player=" + player.getName()
+                        + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
+                        + " action=applied"
+                        + " reason=" + (reason == null ? "unknown" : reason)
+                        + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
+                                lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch));
+            }
+        }, null);
+        if (!SchedulerHelper.isTaskScheduled(task)) {
+            StaticLog.logWarning("Failed to schedule teleport resync moving-data refresh for player: "
+                    + player.getName() + " (" + (reason == null ? "unknown" : reason) + ")");
+        }
+    }
+
+    public boolean isWithinTeleportResyncStalePacketDropModel(final long now,
+                                                              final Location knownLocation,
+                                                              final Location packetLocation,
+                                                              final DataPacketFlying packetData) {
+        if (lastTeleportResyncMovingDataKey <= 0L
+                || lastTeleportResyncRequestTime <= 0L
+                || now < lastTeleportResyncRequestTime
+                || now - lastTeleportResyncRequestTime > MOVING_TELEPORT_RESYNC_PENDING_MS
+                || distanceToStored(lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                        knownLocation) > MOVING_TELEPORT_RESYNC_TARGET_DISTANCE) {
+            return false;
+        }
+        final long serverJumpAge = lastServerPositionJumpTime <= 0L ? Long.MAX_VALUE : now - lastServerPositionJumpTime;
+        if (lastServerPositionJumpTime > 0L
+                && serverJumpAge >= 0L
+                && serverJumpAge <= MOVING_SERVER_JUMP_STALE_PACKET_MODEL_MS
+                && isStalePacketNearStoredPositionModel(packetLocation, packetData,
+                        lastServerPositionJumpFromX, lastServerPositionJumpFromY,
+                        lastServerPositionJumpFromZ, serverJumpAge)) {
+            return true;
+        }
+        final long commandAge = lastTeleportCommandTime <= 0L ? Long.MAX_VALUE : now - lastTeleportCommandTime;
+        return lastTeleportCommandTime > 0L
+                && commandAge >= 0L
+                && commandAge <= MOVING_TELEPORT_COMMAND_PENDING_MS
+                && isStalePacketNearStoredPositionModel(packetLocation, packetData,
+                        lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, commandAge);
+    }
+
+    public void acceptMovingTeleportStalePacketContinuation(final Player player,
+                                                            final Location knownLocation,
+                                                            final Location packetLocation,
+                                                            final DataPacketFlying packetData,
+                                                            final long now,
+                                                            final String reason) {
+        // Teleport model: additional old-location packets after resync are deleted from packet history.
+        movingVL *= 0.5;
+        final int queueSizeBeforeClear = getFlyingQueueSize();
+        clearFlyingQueue();
+        logTeleportResyncStalePacketDrop(player, now, knownLocation, packetLocation, packetData,
+                reason, "continuation", queueSizeBeforeClear, false);
+    }
+
+    /**
+     * Apply a pending teleport resync from the player move path, where MovingData
+     * is owned by the correct Folia region. This prevents stale pre-teleport
+     * set backs from surviving until the next scheduled entity task.
+     */
+    public boolean applyPendingTeleportResync(final Player player, final MovingData mData,
+                                              final Location eventFrom, final Location eventTo,
+                                              final long now) {
+        if (player == null || mData == null || lastTeleportResyncMovingDataKey <= 0L
+                || lastTeleportResyncAppliedKey == lastTeleportResyncMovingDataKey
+                || lastTeleportResyncRequestTime <= 0L
+                || now < lastTeleportResyncRequestTime
+                || now - lastTeleportResyncRequestTime > MOVING_TELEPORT_RESYNC_PENDING_MS) {
+            return false;
+        }
+        final Location modelTarget = getPendingTeleportResyncTarget();
+        if (modelTarget == null) {
+            return false;
+        }
+        Location current = null;
+        try {
+            current = player.isOnline() ? player.getLocation() : null;
+        }
+        catch (Throwable ignored) {}
+        final Location appliedTarget = isNearPendingTeleportTarget(current) ? current
+                : isNearPendingTeleportTarget(eventTo) ? eventTo
+                : isNearPendingTeleportTarget(eventFrom) ? eventFrom
+                : modelTarget;
+        if (!isNearPendingTeleportTarget(appliedTarget)) {
+            return false;
+        }
+        // Teleport/Folia model: move-event code is region-safe, so clear old movement history immediately.
+        mData.onExternalTeleportResync(appliedTarget);
+        markTeleportResyncApplied(lastTeleportResyncMovingDataKey);
+        if (shouldLogTeleportResyncSuccessToConsole()) {
+            player.getServer().getLogger().info("[NCP][NetMoving][resync] player=" + player.getName()
+                    + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
+                    + " action=applied_move_event"
+                    + " reason=" + lastTeleportResyncReason
+                    + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
+                            lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch));
+        }
+        return true;
+    }
+
+    private void recordPendingTeleportResync(final long resyncKey, final Location loc,
+                                             final long now, final String reason) {
+        lastTeleportResyncRequestTime = now;
+        lastTeleportResyncReason = reason == null ? "unknown" : reason;
+        lastTeleportResyncWorld = loc.getWorld() == null ? "null" : loc.getWorld().getName();
+        lastTeleportResyncX = loc.getX();
+        lastTeleportResyncY = loc.getY();
+        lastTeleportResyncZ = loc.getZ();
+        lastTeleportResyncYaw = loc.getYaw();
+        lastTeleportResyncPitch = loc.getPitch();
+        if (lastTeleportResyncAppliedKey != resyncKey) {
+            lastTeleportResyncAppliedKey = 0L;
+        }
+        lastTeleportResyncDroppedPacketLogTime = 0L;
+        lastTeleportResyncDroppedPacketCount = 0;
+        lastTeleportResyncPendingDropLogCount = 0;
+    }
+
+    private void markTeleportResyncApplied(final long resyncKey) {
+        if (resyncKey > 0L) {
+            lastTeleportResyncAppliedKey = resyncKey;
+        }
+    }
+
+    private Location getPendingTeleportResyncTarget() {
+        if (lastTeleportResyncMovingDataKey <= 0L || lastTeleportResyncWorld == null) {
+            return null;
+        }
+        return new Location(null, lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ,
+                lastTeleportResyncYaw, lastTeleportResyncPitch);
+    }
+
+    private boolean isNearPendingTeleportTarget(final Location loc) {
+        if (loc == null) {
+            return false;
+        }
+        if (loc.getWorld() != null && lastTeleportResyncWorld != null
+                && !"null".equals(lastTeleportResyncWorld)
+                && !lastTeleportResyncWorld.equals(loc.getWorld().getName())) {
+            return false;
+        }
+        return distanceToStored(lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, loc)
+                <= MOVING_TELEPORT_RESYNC_TARGET_DISTANCE;
+    }
+
+    private boolean isStalePacketNearStoredPositionModel(final Location packetLocation,
+                                                        final DataPacketFlying packetData,
+                                                        final double storedX,
+                                                        final double storedY,
+                                                        final double storedZ,
+                                                        final long age) {
+        if (packetLocation == null || packetData == null || !packetData.hasPos) {
+            return false;
+        }
+        final double horizontal = horizontalDistance(storedX, storedZ, packetLocation.getX(), packetLocation.getZ());
+        final double vertical = Math.abs(packetLocation.getY() - storedY);
+        return horizontal <= getStalePacketHorizontalModel(packetData)
+                && vertical <= getStalePacketVerticalModel(packetData, age);
+    }
+
+    private double getStalePacketHorizontalModel(final DataPacketFlying packetData) {
+        final DataPacketFlying previous = getPreviousPositionPacket(packetData);
+        if (previous == null) {
+            return MOVING_STALE_PACKET_HORIZONTAL_BASE;
+        }
+        final double motion = horizontalDistance(previous.getX(), previous.getZ(), packetData.getX(), packetData.getZ());
+        return Math.max(MOVING_STALE_PACKET_HORIZONTAL_BASE,
+                motion * MOVING_STALE_PACKET_MOTION_MULTIPLIER + MOVING_POSITION_MATCH_EPSILON);
+    }
+
+    private double getStalePacketVerticalModel(final DataPacketFlying packetData, final long age) {
+        final double ageTicks = Math.max(1.0D, Math.ceil(Math.max(0L, age) / 50.0D) + 1.0D);
+        final double ageEnvelope = MOVING_STALE_PACKET_VERTICAL_BASE
+                + ageTicks * MOVING_STALE_PACKET_VERTICAL_PER_TICK;
+        final DataPacketFlying previous = getPreviousPositionPacket(packetData);
+        if (previous == null) {
+            return Math.min(MOVING_STALE_PACKET_VERTICAL_MAX, ageEnvelope);
+        }
+        final double motion = Math.abs(packetData.getY() - previous.getY());
+        return Math.min(MOVING_STALE_PACKET_VERTICAL_MAX,
+                Math.max(ageEnvelope, motion * MOVING_STALE_PACKET_MOTION_MULTIPLIER
+                        + MOVING_STALE_PACKET_VERTICAL_BASE));
+    }
+
+    private DataPacketFlying getPreviousPositionPacket(final DataPacketFlying packetData) {
+        if (packetData == null) {
+            return null;
+        }
+        lock.lock();
+        try {
+            boolean foundCurrent = false;
+            for (final DataPacketFlying packet : flyingQueue) {
+                if (packet == null || !packet.hasPos) {
+                    continue;
+                }
+                if (foundCurrent) {
+                    return packet;
+                }
+                if (packet == packetData || packet.getSequence() == packetData.getSequence()) {
+                    foundCurrent = true;
+                }
+            }
+            return null;
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     public long getMovingTeleportGraceAge(final long now) {
@@ -366,7 +680,9 @@ public class NetData extends ACheckData {
         return lastTeleportCommandTime <= 0L ? -1L : now - lastTeleportCommandTime;
     }
 
-    public String describeMovingTeleportState(final long now, final Location knownLocation, final Location packetLocation) {
+    public String describeMovingTeleportState(final long now, final Location knownLocation,
+                                              final Location packetLocation,
+                                              final DataPacketFlying packetData) {
         return new StringBuilder(500)
                 .append("eventAge=").append(getMovingTeleportGraceAge(now))
                 .append(",eventWithinGrace=").append(isWithinMovingTeleportGrace(now))
@@ -383,16 +699,21 @@ public class NetData extends ACheckData {
                 .append(",outgoingToPacket=").append(formatStoredDistance(lastOutgoingPositionTime, lastOutgoingPositionX, lastOutgoingPositionY, lastOutgoingPositionZ, packetLocation))
                 .append(",serverJumpAge=").append(getServerPositionJumpGraceAge(now))
                 .append(",serverJumpWithinGrace=").append(isWithinServerPositionJumpGrace(now, knownLocation, packetLocation))
+                .append(",serverJumpStalePacketModel=").append(isWithinServerPositionJumpStalePacketModel(now,
+                        knownLocation, packetLocation, packetData))
                 .append(",serverJumpFrom=").append(formatServerJumpFrom())
                 .append(",serverJumpTo=").append(formatServerJumpTo())
                 .append(",serverJumpToKnown=").append(formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpToX, lastServerPositionJumpToY, lastServerPositionJumpToZ, knownLocation))
                 .append(",serverJumpFromPacket=").append(formatStoredDistance(lastServerPositionJumpTime, lastServerPositionJumpFromX, lastServerPositionJumpFromY, lastServerPositionJumpFromZ, packetLocation))
                 .append(",commandAge=").append(getTeleportCommandGraceAge(now))
                 .append(",commandWithinGrace=").append(isWithinTeleportCommandGrace(now, knownLocation, packetLocation))
+                .append(",commandStalePacketModel=").append(isWithinTeleportCommandStalePacketModel(now,
+                        knownLocation, packetLocation, packetData))
                 .append(",command=").append(lastTeleportCommand)
                 .append(",commandLoc=").append(formatTeleportCommandLocation())
                 .append(",commandToKnown=").append(formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, knownLocation))
                 .append(",commandToPacket=").append(formatStoredDistance(lastTeleportCommandTime, lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation))
+                .append(",resync=").append(describeTeleportResyncState(now, knownLocation))
                 .append(",queue=").append(teleportQueue.getDebugState(now))
                 .toString();
     }
@@ -451,9 +772,109 @@ public class NetData extends ACheckData {
         lastServerPositionJumpTime = 0L;
         lastServerPositionJumpFromWorld = null;
         lastServerPositionJumpToWorld = null;
+        lastServerPositionJumpRecoveryUsedTime = 0L;
         lastTeleportCommandTime = 0L;
         lastTeleportCommand = "none";
         lastTeleportCommandWorld = null;
+        lastTeleportResyncMovingDataKey = 0L;
+        lastTeleportResyncRequestTime = 0L;
+        lastTeleportResyncAppliedKey = 0L;
+        lastTeleportResyncReason = "none";
+        lastTeleportResyncWorld = null;
+        lastTeleportResyncDroppedPacketLogTime = 0L;
+        lastTeleportResyncDroppedPacketCount = 0;
+        lastTeleportResyncPendingDropLogCount = 0;
+    }
+
+    private String describeTeleportResyncState(final long now, final Location knownLocation) {
+        if (lastTeleportResyncMovingDataKey <= 0L) {
+            return "none";
+        }
+        return new StringBuilder(150)
+                .append("{key=").append(lastTeleportResyncMovingDataKey)
+                .append(",age=").append(lastTeleportResyncRequestTime <= 0L ? -1L : now - lastTeleportResyncRequestTime)
+                .append(",applied=").append(lastTeleportResyncAppliedKey == lastTeleportResyncMovingDataKey)
+                .append(",reason=").append(lastTeleportResyncReason)
+                .append(",target=").append(formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
+                        lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch))
+                .append(",targetToKnown=").append(formatStoredDistance(lastTeleportResyncRequestTime,
+                        lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, knownLocation))
+                .append(",droppedPackets=").append(lastTeleportResyncDroppedPacketCount)
+                .append('}')
+                .toString();
+    }
+
+    private void logTeleportResyncStalePacketDrop(final Player player, final long now,
+                                                  final Location knownLocation,
+                                                  final Location packetLocation,
+                                                  final DataPacketFlying packetData,
+                                                  final String reason,
+                                                  final String action,
+                                                  final int queueSizeBeforeClear,
+                                                  final boolean forceLog) {
+        lastTeleportResyncDroppedPacketCount++;
+        lastTeleportResyncPendingDropLogCount++;
+        if (player == null || !CheckUtils.shouldLogDebugToConsole()) {
+            return;
+        }
+        // Teleport model diagnostic: Folia/ProtocolLib can deliver a short pair of old-location packets after teleport.
+        if (lastTeleportResyncDroppedPacketCount <= MOVING_TELEPORT_RESYNC_NORMAL_STALE_PACKET_LIMIT) {
+            return;
+        }
+        if (!forceLog && lastTeleportResyncDroppedPacketLogTime > 0L
+                && now - lastTeleportResyncDroppedPacketLogTime < 10000L) {
+            return;
+        }
+        final int loggedCount = lastTeleportResyncPendingDropLogCount;
+        lastTeleportResyncPendingDropLogCount = 0;
+        lastTeleportResyncDroppedPacketLogTime = now;
+        player.getServer().getLogger().info("[NCP][NetMoving][stale-drop] player=" + player.getName()
+                + " buildTag=" + CheckUtils.RUNTIME_BUILD_TAG
+                + " action=" + action
+                + " reason=" + (reason == null ? "unknown" : reason)
+                + " droppedPackets=" + lastTeleportResyncDroppedPacketCount
+                + " loggedCount=" + loggedCount
+                + " queueSizeBeforeClear=" + queueSizeBeforeClear
+                + " target=" + formatStoredLocation(lastTeleportResyncX, lastTeleportResyncY,
+                        lastTeleportResyncZ, lastTeleportResyncYaw, lastTeleportResyncPitch)
+                + " targetToKnown=" + formatStoredDistance(lastTeleportResyncRequestTime,
+                        lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, knownLocation)
+                + " packetToServerJumpFrom=" + formatStoredDistance(lastServerPositionJumpTime,
+                        lastServerPositionJumpFromX, lastServerPositionJumpFromY,
+                        lastServerPositionJumpFromZ, packetLocation)
+                + " packetToCommand=" + formatStoredDistance(lastTeleportCommandTime,
+                        lastTeleportCommandX, lastTeleportCommandY, lastTeleportCommandZ, packetLocation)
+                + " packet=" + formatPacket(packetData, now));
+    }
+
+    private boolean shouldLogTeleportResyncSuccessToConsole() {
+        return CheckUtils.shouldLogDebugToConsole()
+                && lastTeleportResyncDroppedPacketCount > MOVING_TELEPORT_RESYNC_NORMAL_STALE_PACKET_LIMIT;
+    }
+
+    private int getFlyingQueueSize() {
+        lock.lock();
+        try {
+            return flyingQueue.size();
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private String formatPacket(final DataPacketFlying packetData, final long now) {
+        if (packetData == null) {
+            return "none";
+        }
+        return new StringBuilder(120)
+                .append("seq=").append(packetData.getSequence())
+                .append(",age=").append(now - packetData.time)
+                .append(",type=").append(packetData.getSimplifiedContentType())
+                .append(",tracked=").append(packetData.isTracked())
+                .append(",ground=").append(packetData.onGround)
+                .append(",hCollision=").append(packetData.horizontalCollision)
+                .append(",hasPos=").append(packetData.hasPos)
+                .toString();
     }
 
     private boolean matchesPosition(final double x, final double y, final double z, final Location loc) {
@@ -525,6 +946,12 @@ public class NetData extends ACheckData {
 
     private double distanceToStored(final double x, final double y, final double z, final Location loc) {
         return loc == null ? Double.MAX_VALUE : distance(x, y, z, loc.getX(), loc.getY(), loc.getZ());
+    }
+
+    private double horizontalDistance(final double x1, final double z1, final double x2, final double z2) {
+        final double xDiff = x2 - x1;
+        final double zDiff = z2 - z1;
+        return Math.sqrt(xDiff * xDiff + zDiff * zDiff);
     }
 
     private double distance(final double x1, final double y1, final double z1,

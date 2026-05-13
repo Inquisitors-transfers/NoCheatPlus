@@ -103,10 +103,21 @@ public class Moving extends Check {
 
             final boolean teleportGrace = data.isWithinMovingTeleportGrace(now);
             final boolean outgoingPositionGrace = data.isWithinOutgoingPositionGrace(now, knownLocation);
-            final boolean serverPositionJumpGrace = data.isWithinServerPositionJumpGrace(now, knownLocation, packetLocation);
-            final boolean teleportCommandGrace = data.isWithinTeleportCommandGrace(now, knownLocation, packetLocation);
+            final boolean serverPositionJumpModel = data.isWithinServerPositionJumpStalePacketModel(now,
+                    knownLocation, packetLocation, packetData);
+            final boolean teleportCommandModel = data.isWithinTeleportCommandStalePacketModel(now,
+                    knownLocation, packetLocation, packetData);
+            final boolean teleportResyncStalePacketDropModel = (serverPositionJumpModel || teleportCommandModel)
+                    && data.isWithinTeleportResyncStalePacketDropModel(now, knownLocation, packetLocation, packetData);
             final boolean expectedOutgoingPositionGrace = extremeMove && data.consumeExpectedOutgoingPosition(packetData);
-            if (extremeMove && (teleportGrace || outgoingPositionGrace || expectedOutgoingPositionGrace || serverPositionJumpGrace || teleportCommandGrace)) {
+            final boolean serverPositionJumpRecoveryGrace = extremeMove
+                    && !serverPositionJumpModel
+                    && !teleportCommandModel
+                    && isServerPositionJumpRecoveryContext(mData)
+                    && data.consumeServerPositionJumpRecoveryGrace(now, knownLocation);
+            // NetMoving compatibility: match extreme packets against teleport/server-position history before flagging.
+            if (extremeMove && (teleportGrace || outgoingPositionGrace || expectedOutgoingPositionGrace
+                    || serverPositionJumpModel || serverPositionJumpRecoveryGrace || teleportCommandModel)) {
                 if (teleportGrace) {
                     tags.add("teleport_grace");
                 }
@@ -116,15 +127,39 @@ public class Moving extends Check {
                 if (expectedOutgoingPositionGrace) {
                     tags.add("expected_outgoing_position_grace");
                 }
-                if (serverPositionJumpGrace) {
-                    tags.add("server_position_jump_grace");
+                if (serverPositionJumpModel) {
+                    tags.add("server_position_jump_stale_packet_model");
                 }
-                if (teleportCommandGrace) {
-                    tags.add("teleport_command_grace");
+                if (serverPositionJumpRecoveryGrace) {
+                    tags.add("server_position_jump_recovery_grace");
                 }
-                if (CheckUtils.shouldLogDebugToConsole()) {
-                    logConsoleDetails("grace", player, packetData, knownLocation, packetLocation, hDistance, yDistance,
+                if (teleportCommandModel) {
+                    tags.add("teleport_command_stale_packet_model");
+                }
+                if (serverPositionJumpModel || teleportCommandModel) {
+                    tags.add("teleport_resync_history_reset");
+                }
+                if (teleportResyncStalePacketDropModel) {
+                    tags.add("teleport_resync_stale_packet_drop");
+                }
+                if (CheckUtils.shouldLogDebugToConsole()
+                        && !(serverPositionJumpModel || teleportCommandModel)) {
+                    final String reason = serverPositionJumpModel || teleportCommandModel ? "model" : "grace";
+                    logConsoleDetails(reason, player, packetData, knownLocation, packetLocation, hDistance, yDistance,
                             distance, data, mData, pData, now);
+                }
+                if (serverPositionJumpModel || teleportCommandModel) {
+                    final String reason = serverPositionJumpModel ? "server_position_jump_stale_packet_model"
+                            : "teleport_command_stale_packet_model";
+                    // Teleport model: accepted stale packets are deleted from packet history, not kept as movement data.
+                    if (teleportResyncStalePacketDropModel) {
+                        data.acceptMovingTeleportStalePacketContinuation(player, knownLocation, packetLocation,
+                                packetData, now, reason);
+                    }
+                    else {
+                        data.acceptMovingTeleportResync(player, plugin, mData, knownLocation, packetLocation,
+                                packetData, now, reason);
+                    }
                 }
                 data.movingVL *= 0.98;
                 useLoc.setWorld(null);
@@ -136,6 +171,8 @@ public class Moving extends Check {
             if (extremeMove/*distanceSq > 100.0 || hDistance > 100.0*/) {
                 data.movingVL++ ;
                 tags.add("invalid_pos");
+                // Diagnostic info: separate net extreme-move flags from teleport/grace branches.
+                tags.add(0, "subcheck_netmoving_extreme_move");
                 if (CheckUtils.shouldLogDebugToConsole()) {
                     logConsoleDetails("violation", player, packetData, knownLocation, packetLocation, hDistance, yDistance,
                             distance, data, mData, pData, now);
@@ -167,6 +204,16 @@ public class Moving extends Check {
         return cancel;
     }
 
+    private boolean isServerPositionJumpRecoveryContext(final MovingData data) {
+        // False-positive tuning: death/respawn and portal/server jumps can leave move history invalid for one packet.
+        final PlayerMoveData currentMove = data.playerMoves.getCurrentMove();
+        final PlayerMoveData lastMove = data.playerMoves.getFirstPastMove();
+        return data.joinOrRespawn
+                || !data.hasSetBack()
+                || !currentMove.toIsValid
+                || !lastMove.toIsValid;
+    }
+
     private void logConsoleDetails(final String reason, final Player player, final DataPacketFlying packetData,
                                    final Location knownLocation, final Location packetLocation,
                                    final double hDistance, final double yDistance, final double distance,
@@ -176,7 +223,16 @@ public class Moving extends Check {
             final String joinedTags = StringUtil.join(tags, "+");
             player.getServer().getLogger().info(new StringBuilder(700)
                     .append("[NCP][NetMoving][detail] player=").append(player.getName())
+                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
+                    .append(" subcheck=").append("violation".equals(reason) ? "NETMOVING_EXTREME_MOVE"
+                            : "model".equals(reason) ? "NETMOVING_TELEPORT_RESYNC_MODEL" : "NETMOVING_GRACE")
+                    .append(" summary=net_moving{reason=").append(reason)
+                    .append(",h=").append(StringUtil.fdec3.format(hDistance))
+                    .append(",y=").append(StringUtil.fdec3.format(yDistance))
+                    .append(",total=").append(StringUtil.fdec3.format(distance))
+                    .append(",tags=").append(joinedTags.isEmpty() ? "none" : joinedTags)
+                    .append('}')
                     .append(" uuid=").append(player.getUniqueId())
                     .append(" client=").append(pData.getClientVersion())
                     .append(" now=").append(now)
@@ -197,11 +253,13 @@ public class Moving extends Check {
                     .toString());
             player.getServer().getLogger().info(new StringBuilder(900)
                     .append("[NCP][NetMoving][teleport] player=").append(player.getName())
+                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
-                    .append(" ").append(data.describeMovingTeleportState(now, knownLocation, packetLocation))
+                    .append(" ").append(data.describeMovingTeleportState(now, knownLocation, packetLocation, packetData))
                     .toString());
             player.getServer().getLogger().info(new StringBuilder(1100)
                     .append("[NCP][NetMoving][model] player=").append(player.getName())
+                    .append(" buildTag=").append(CheckUtils.RUNTIME_BUILD_TAG)
                     .append(" reason=").append(reason)
                     .append(" playerState=").append(formatPlayerState(player))
                     .append(" movingData=").append(formatMovingData(mData, knownLocation))

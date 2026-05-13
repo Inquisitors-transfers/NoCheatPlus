@@ -35,6 +35,7 @@ import fr.neatmonster.nocheatplus.utilities.map.MaterialUtil;
 public class BlockCacheBukkit extends BlockCache {
 
     private static final long FOLIA_FALLBACK_LOG_INTERVAL_MS = 10000L;
+    private static final int FOLIA_FALLBACK_CONSOLE_LOG_MIN_COUNT = 2;
     private static final AtomicInteger foliaFallbackCount = new AtomicInteger();
     private static final AtomicInteger foliaFallbackResolvedCount = new AtomicInteger();
     private static final AtomicLong nextFoliaFallbackLog = new AtomicLong();
@@ -138,7 +139,11 @@ public class BlockCacheBukkit extends BlockCache {
         }
         final int resolvedCount = foliaFallbackResolvedCount.getAndSet(0);
         final int periodCount = foliaFallbackCount.getAndSet(0);
-        Bukkit.getLogger().info("[NCP][Folia][BlockCache] normal " + kind + " block access failed; fallback used "
+        // Folia diagnostic: a single safe fallback during teleport/chunk handoff is expected and not useful console noise.
+        if (periodCount < FOLIA_FALLBACK_CONSOLE_LOG_MIN_COUNT) {
+            return;
+        }
+        Bukkit.getLogger().info("[NCP][Folia][BlockCache] safe " + kind + " block fallback used "
                                 + periodCount + " times in the last 10s, resolved=" + resolvedCount
                                 + ", finalSafeFallback=" + (periodCount - resolvedCount) + ".");
     }

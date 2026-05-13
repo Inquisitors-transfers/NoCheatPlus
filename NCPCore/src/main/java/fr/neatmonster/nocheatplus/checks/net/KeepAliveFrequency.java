@@ -55,6 +55,7 @@ public class KeepAliveFrequency extends Check {
             final double vl = Math.max(first - 1f, fullScore - data.keepAliveFreq.numberOfBuckets());
             final boolean cancel = executeActions(player, vl, 1.0, cc.keepAliveFrequencyActions).willCancel();
             if (CheckUtils.shouldLogDebugToConsole()) {
+                // Diagnostic info: bucket details separate duplicate packets from normal boundary timing.
                 logConsoleDetails(player, time, now, joinTime, data, cc, pData, first, fullScore, vl, cancel);
             }
             return cancel;
@@ -64,10 +65,11 @@ public class KeepAliveFrequency extends Check {
 
     private boolean isBucketBoundaryGrace(final NetData data, final float fullScore, final float first) {
         // False-positive tuning: Folia/modern client timing can put two legitimate replies in the first bucket.
-        return first <= 3f
-                && data.keepAlivePacketDelta >= 250L
-                && fullScore <= data.keepAliveFreq.numberOfBuckets() + 2f
-                && !data.keepAliveDuplicateId;
+        if (data.keepAliveDuplicateId || fullScore > data.keepAliveFreq.numberOfBuckets() + 2f) {
+            return false;
+        }
+        // Folia/netty can timestamp two adjacent valid replies in the same millisecond; do not cancel a single pair.
+        return first <= 2f || first <= 3f && data.keepAlivePacketDelta >= 250L;
     }
 
     private void logConsoleDetails(final Player player, final long packetTime, final long now, final long joinTime,
@@ -81,6 +83,11 @@ public class KeepAliveFrequency extends Check {
                     .append("[NCP][KeepAliveFrequency][detail] player=").append(player.getName())
                     .append(" uuid=").append(player.getUniqueId())
                     .append(" client=").append(pData.getClientVersion())
+                    .append(" summary=keepalive_bucket{first=").append(StringUtil.fdec3.format(first))
+                    .append(",full=").append(StringUtil.fdec3.format(fullScore))
+                    .append(",expected=").append(data.keepAliveFreq.numberOfBuckets())
+                    .append(",cancel=").append(cancel)
+                    .append('}')
                     .append(" packetTime=").append(packetTime)
                     .append(" now=").append(now)
                     .append(" joinAge=").append(joinTime <= 0L ? -1L : now - joinTime)

@@ -131,6 +131,7 @@ import fr.neatmonster.nocheatplus.players.IPlayerDataManager;
 import fr.neatmonster.nocheatplus.players.PlayerDataManager;
 import fr.neatmonster.nocheatplus.players.PlayerMessageSender;
 import fr.neatmonster.nocheatplus.stats.Counters;
+import fr.neatmonster.nocheatplus.utilities.CheckUtils;
 import fr.neatmonster.nocheatplus.utilities.ColorUtil;
 import fr.neatmonster.nocheatplus.utilities.Misc;
 import fr.neatmonster.nocheatplus.utilities.OnDemandTickListener;
@@ -826,7 +827,7 @@ public class NoCheatPlus extends JavaPlugin implements NoCheatPlusAPI {
      */
     @Override
     public void onLoad() {
-        Bukkit.getLogger().info("[NoCheatPlus] onLoad: Early set up of static API, configuration, logging."); // Bukkit logger.
+        Bukkit.getLogger().info("[NoCheatPlus] onLoad: Early set up of static API, configuration, logging. buildTag=" + CheckUtils.RUNTIME_BUILD_TAG); // Bukkit logger.
         setupBasics();
     }
 
@@ -1057,7 +1058,7 @@ public class NoCheatPlus extends JavaPlugin implements NoCheatPlusAPI {
         // Set StaticLog to more efficient output.
         StaticLog.setStreamID(Streams.STATUS);
         // Tell the server administrator that we finished loading NoCheatPlus now.
-        logManager.info(Streams.INIT, "Version " + getDescription().getVersion() + " is enabled.");
+        logManager.info(Streams.INIT, "Version " + getDescription().getVersion() + " is enabled. buildTag=" + CheckUtils.RUNTIME_BUILD_TAG);
     }
 
     /**

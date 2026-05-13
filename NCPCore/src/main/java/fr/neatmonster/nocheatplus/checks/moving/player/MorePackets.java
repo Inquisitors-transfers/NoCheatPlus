@@ -89,12 +89,15 @@ public class MorePackets extends Check {
 
         // Check for a violation of the set limits.
         tags.clear();
+        // Diagnostic info: packet-rate tags are separate from SurvivalFly movement-model tags.
         final double violation = NetStatic.morePacketsCheck(data.morePacketsFreq, time, 1f, cc.morePacketsEPSMax, cc.morePacketsEPSIdeal, data.morePacketsBurstFreq, cc.morePacketsBurstPackets, cc.morePacketsBurstDirect, cc.morePacketsBurstEPM, tags);
 
         // Process violation result.
         if (violation > 0.0) {
             // Increment violation level.
             data.morePacketsVL = violation; // TODO: Accumulate somehow [e.g. always += 1, decrease with continuous moving without violation]?
+            // Diagnostic info: expose packet-rate violations as their own subcheck under MOVING_MOREPACKETS.
+            tags.add(0, "subcheck_morepackets_frequency");
 
             // Violation handling.
             final ViolationData vd = new ViolationData(this, player, data.morePacketsVL, violation, cc.morePacketsActions);
@@ -134,6 +137,7 @@ public class MorePackets extends Check {
                                    final MovingData data, final MovingConfig cc,
                                    final IPlayerData pData, final long time) {
         try {
+            // Diagnostic info: console-only packet-rate context for distinguishing packet spam from movement model issues.
             final StringBuilder builder = new StringBuilder(620);
             builder.append("[NCP][MorePackets][detail] player=").append(player.getName())
                     .append(" bedrock=").append(pData.isBedrockPlayer() || player.getName().startsWith(".")
@@ -142,6 +146,12 @@ public class MorePackets extends Check {
                     .append(" uuid=").append(player.getUniqueId())
                     .append(" client=").append(pData.getClientVersion())
                     .append(" time=").append(time)
+                    .append(" subcheck=MOREPACKETS_FREQUENCY")
+                    .append(" summary=packet_rate{violation=").append(StringUtil.fdec3.format(violation))
+                    .append(",epsMax=").append(cc.morePacketsEPSMax)
+                    .append(",burst=").append(cc.morePacketsBurstPackets)
+                    .append(",setback=").append(data.hasMorePacketsSetBack())
+                    .append('}')
                     .append(" violation=").append(StringUtil.fdec3.format(violation))
                     .append(" totalVL=").append(StringUtil.fdec3.format(data.morePacketsVL))
                     .append(" moveCount=").append(data.getPlayerMoveCount())

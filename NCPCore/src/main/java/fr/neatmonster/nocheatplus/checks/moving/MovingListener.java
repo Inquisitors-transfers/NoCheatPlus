@@ -1329,6 +1329,13 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         final PlayerLocation pFrom, pTo;
         pFrom = moveInfo.from;
         pTo = moveInfo.to;
+
+        // Teleport/Folia model: NET_MOVING can detect a server-side position jump before Bukkit teleport
+        // monitor data is visible, so retire stale movement history from the safe move-event thread too.
+        if (pData.getGenericInstance(NetData.class).applyPendingTeleportResync(player, data, from, to, time)
+                && debug) {
+            debug(player, "Applied pending NET_MOVING teleport resync before movement checks.");
+        }
         
         
         ////////////////////////////////////

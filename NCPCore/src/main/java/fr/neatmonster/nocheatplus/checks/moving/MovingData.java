@@ -550,6 +550,23 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
     }
 
 
+    public void onExternalTeleportResync(final Location loc) {
+        // Teleport/Folia support: NET_MOVING accepted a stale pre-teleport packet, so old move history must not
+        // remain available as a future setback target.
+        playerMoves.invalidate();
+        clearPlayerMorePacketsData();
+        sfJumpPhase = 0;
+        sfHoverTicks = -1;
+        verticalBounce = null;
+        timeSinceSetBack = 0;
+        if (loc != null) {
+            setSetBack(loc);
+        }
+        resetTeleported();
+        joinOrRespawn = false;
+    }
+
+
     /**
      * Reduce the morepackets frequency counters by the given amount, capped at
      * a minimum of 0.

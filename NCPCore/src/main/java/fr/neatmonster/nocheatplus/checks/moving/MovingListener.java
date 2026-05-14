@@ -162,6 +162,32 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
     /** Player names to check hover for, case-insensitive. */
     private final Set<String> hoverTicks = ConcurrentHashMap.newKeySet(30);
 
+    private static final double HOVER_VERTICAL_PROGRESS = 0.04D;
+    private static final double HOVER_AIR_DROP_DEFICIT = 0.60D;
+    /*
+     * Elytra hover model: normal no-firework glides from the tuning logs stayed
+     * below roughly 0.42 accumulated drop debt, while flat hover packets crossed
+     * 0.54 without ever paying real descent. Keep the boundary model-based and
+     * below the packet-shaped hover plateau instead of waiting for the legacy
+     * broad hover window.
+     */
+    private static final double HOVER_ELYTRA_DROP_DEFICIT = 0.52D;
+    /*
+     * Elytra flat-hover model: cheat clients can stay just below the broad drop
+     * deficit by sending repeated tiny/flat glide packets. The latest 1x70 trace
+     * crossed ~0.27 drop debt with essentially zero descent, while legitimate
+     * traces that built similar short-term debt paid real descent, so require
+     * near-zero accumulated descent before using this tighter boundary.
+     */
+    private static final double HOVER_ELYTRA_FLAT_DROP_DEFICIT = 0.25D;
+    private static final double HOVER_ELYTRA_FLAT_MAX_ACTUAL_DROP = 0.02D;
+    private static final double HOVER_ELYTRA_MIN_DESCENT = 0.006D;
+    private static final int HOVER_AIR_BUDGET_MIN_TICKS = 8;
+    private static final int HOVER_ELYTRA_BUDGET_MIN_TICKS = 45;
+    private static final int HOVER_AIR_BUDGET_WINDOW = 80;
+    private static final int HOVER_RECENT_SETBACK_TICKS = 20;
+    private static final long ELYTRA_NOFALL_LANDING_HANDOFF_MS = 1000L;
+
     /** Player names to check enforcing the location for in onTick, case-insensitive. */
     private final Set<String> playersEnforce = ConcurrentHashMap.newKeySet(30);
 
@@ -1364,6 +1390,9 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         thisMove.setBackYDistance = pTo.getY() - data.getSetBackY();
         thisMove.isGliding = Bridge1_9.isGliding(player);
         thisMove.tridentRelease = data.consumeTridentReleaseEvent();
+        if (isElytraNoFallResetMove(player, thisMove)) {
+            resetNoFallForElytraGlide(player, pTo, data, time);
+        }
 
         ////////////////////////////
         // Potion effect "Jump".  //
@@ -1572,17 +1601,14 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             // 1.4: Only check NoFall, if not already vetoed.
             if (checkNf) {
                 checkNf = noFall.isEnabled(player, pData);
+                if (checkNf && isRecentElytraNoFallReset(data, time)) {
+                    checkNf = false;
+                }
             }
             
             // 1.5: Hover subcheck.
             if (newTo == null) {
-                // TODO: Could reset for from-on-ground as well, for not too big moves.
-                if (cc.sfHoverCheck && !(lastMove.toIsValid && lastMove.to.extraPropertiesValid && lastMove.to.onGroundOrResetCond) && !pTo.isOnGround()) {
-                    // Start counting ticks.
-                    hoverTicks.add(playerName);
-                    data.sfHoverTicks = 0;
-                }
-                else data.sfHoverTicks = -1;
+                updateHoverTracking(player, playerName, pFrom, pTo, thisMove, lastMove, data, cc, debug);
 
                 // Still check for NoFall.
                 if (checkNf) {
@@ -1707,6 +1733,220 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             prepareSetBack(player, event, newTo, data, cc, pData);
             return true;
         }
+    }
+
+    private boolean isElytraNoFallResetMove(final Player player, final PlayerMoveData thisMove) {
+        return thisMove.isGliding || Bridge1_9.isGlidingWithElytra(player);
+    }
+
+    private boolean isRecentElytraNoFallReset(final MovingData data, final long now) {
+        return data.noFallElytraResetTime > 0L
+            && now >= data.noFallElytraResetTime
+            && now - data.noFallElytraResetTime <= ELYTRA_NOFALL_LANDING_HANDOFF_MS;
+    }
+
+    private void resetNoFallForElytraGlide(final Player player, final PlayerLocation to,
+                                           final MovingData data, final long now) {
+        /*
+         * Elytra NoFall model: while the server accepts gliding, fall damage is
+         * governed by the elytra glide/collision model, not by ordinary vertical
+         * drop accumulation. Keep a short handoff for the landing damage event.
+         */
+        data.clearNoFallData();
+        data.noFallMaxY = to.getY();
+        data.noFallElytraResetTime = now;
+        if (player.getFallDistance() > 0f) {
+            player.setFallDistance(0f);
+        }
+    }
+
+    private void updateHoverTracking(final Player player, final String playerName, final PlayerLocation from,
+                                     final PlayerLocation to, final PlayerMoveData thisMove,
+                                     final PlayerMoveData lastMove, final MovingData data, final MovingConfig cc,
+                                     final boolean debug) {
+        if (!shouldTrackHover(player, from, to, lastMove, cc)) {
+            data.sfHoverTicks = -1;
+            data.resetHoverAirBudget();
+            return;
+        }
+        hoverTicks.add(playerName);
+        if (isHoverMovementExempt(player, from, to, thisMove, data)) {
+            data.sfHoverTicks = 0;
+            data.resetHoverAirBudget();
+            return;
+        }
+        final boolean gliding = thisMove.isGliding || Bridge1_9.isGlidingWithElytra(player);
+        final boolean descentBudgetDeficit = hasHoverDescentBudgetDeficit(player, thisMove, data);
+        if (gliding && !isElytraHoverEnforced(cc)) {
+            /*
+             * Elytra hover data collection: keep the descent budget and flightTrace
+             * diagnostics updated, but do not schedule a hover correction until the
+             * model is explicitly enabled in config.
+             */
+            data.sfHoverTicks = -1;
+            hoverTicks.remove(playerName);
+            if (debug && descentBudgetDeficit) {
+                debug(player, "Elytra hover data-only: descent budget deficit"
+                    + " yDist=" + StringUtil.fdec6.format(thisMove.yDistance)
+                    + " hDist=" + StringUtil.fdec6.format(thisMove.hDistance)
+                    + " airTicks=" + data.hoverAirTicks
+                    + " expectedDrop=" + StringUtil.fdec6.format(data.hoverExpectedDrop)
+                    + " actualDrop=" + StringUtil.fdec6.format(data.hoverActualDrop)
+                    + " lastYVelocity=" + StringUtil.fdec6.format(data.hoverLastYVelocity));
+            }
+            return;
+        }
+        if (!descentBudgetDeficit) {
+            // Hover model: real descent progress keeps the accumulated budget healthy.
+            data.sfHoverTicks = 0;
+            return;
+        }
+        if (gliding) {
+            /*
+             * Elytra hover model: once the descent budget model rejects the glide,
+             * do not wait for the legacy hover timer. The legacy timer was letting
+             * packet-shaped hover toggle below the threshold before correction.
+             */
+            data.sfHoverTicks = Math.max(data.sfHoverTicks, cc.sfHoverTicks + hoverTicksStep);
+            return;
+        }
+        if (data.sfHoverTicks < 0) {
+            data.sfHoverTicks = 0;
+            if (debug) {
+                debug(player, "Start hover tracking: descent budget deficit"
+                    + " yDist=" + StringUtil.fdec6.format(thisMove.yDistance)
+                    + " hDist=" + StringUtil.fdec6.format(thisMove.hDistance)
+                    + " gliding=" + thisMove.isGliding
+                    + " airTicks=" + data.hoverAirTicks
+                    + " expectedDrop=" + StringUtil.fdec6.format(data.hoverExpectedDrop)
+                    + " actualDrop=" + StringUtil.fdec6.format(data.hoverActualDrop));
+            }
+        }
+    }
+
+
+    private boolean isElytraHoverEnforced(final MovingConfig cc) {
+        /*
+         * Elytra hover is part of the active elytra movement model. Keep the
+         * dedicated hover switch for staged testing, but also enforce it when
+         * the broader SurvivalFly elytra model is enabled.
+         */
+        return cc.sfHoverElytraEnforce || cc.sfElytraEnforce;
+    }
+
+
+    private boolean shouldTrackHover(final Player player, final PlayerLocation from, final PlayerLocation to,
+                                     final PlayerMoveData lastMove, final MovingConfig cc) {
+        if (!cc.sfHoverCheck || player.isDead() || player.isSleeping() || player.isInsideVehicle()
+                || player.isFlying() || player.getAllowFlight()) {
+            return false;
+        }
+        if (to.isOnGroundOrResetCond() || from.isOnGroundOrResetCond()) {
+            return false;
+        }
+        return !(lastMove.toIsValid && lastMove.to.extraPropertiesValid && lastMove.to.onGroundOrResetCond);
+    }
+
+
+    private boolean isHoverMovementExempt(final Player player, final PlayerLocation from, final PlayerLocation to,
+                                          final PlayerMoveData thisMove, final MovingData data) {
+        if (data.timeSinceSetBack < HOVER_RECENT_SETBACK_TICKS || data.hasTeleported()
+                || data.joinOrRespawn || data.timeRiptiding + 1500 > System.currentTimeMillis()) {
+            return true;
+        }
+        if (from.isResetCond() || to.isResetCond() || from.isInLiquid() || to.isInLiquid()
+                || from.isOnClimbable() || to.isOnClimbable() || from.isInWeb() || to.isInWeb()
+                || from.isInPowderSnow() || to.isInPowderSnow()) {
+            return true;
+        }
+        if (!Double.isInfinite(Bridge1_13.getSlowfallingAmplifier(player))) {
+            return true;
+        }
+        final boolean gliding = thisMove.isGliding || Bridge1_9.isGlidingWithElytra(player);
+        if (data.hasQueuedVerVel() || data.getHorizontalVelocityTracker().hasQueued()) {
+            return true;
+        }
+        if (gliding) {
+            /*
+             * Elytra anti-hover model: firework/riptide/velocity cases are handled
+             * elsewhere. Plain gliding is allowed to climb briefly, but sustained
+             * no-firework hover has to pay the accumulated descent budget.
+             */
+            return data.fireworksBoostDuration > 0;
+        }
+        return player.getVelocity().getY() > HOVER_VERTICAL_PROGRESS;
+    }
+
+
+    private boolean hasHoverDescentBudgetDeficit(final Player player, final PlayerMoveData thisMove,
+                                                 final MovingData data) {
+        final boolean gliding = thisMove.isGliding || Bridge1_9.isGlidingWithElytra(player);
+        final double expectedY = getHoverExpectedY(player, thisMove, data, gliding);
+        final int minTicks = gliding ? HOVER_ELYTRA_BUDGET_MIN_TICKS : HOVER_AIR_BUDGET_MIN_TICKS;
+        final double allowedDeficit = gliding ? HOVER_ELYTRA_DROP_DEFICIT : HOVER_AIR_DROP_DEFICIT;
+        data.hoverAirTicks++;
+        data.hoverExpectedDrop += Math.max(0.0D, -expectedY) + getHoverUnexpectedAscentDebt(thisMove, gliding);
+        data.hoverActualDrop += Math.max(0.0D, -thisMove.yDistance);
+        if (data.hoverActualDrop > data.hoverExpectedDrop + allowedDeficit) {
+            // Hover model: cap old descent credit so a past dive cannot bankroll future hovering.
+            data.hoverActualDrop = data.hoverExpectedDrop + allowedDeficit;
+        }
+        data.hoverLastYVelocity = expectedY;
+        trimHoverAirBudget(data);
+
+        final double deficit = data.hoverExpectedDrop - data.hoverActualDrop;
+        final boolean flatNoDropGlide = gliding
+                && data.hoverAirTicks >= minTicks
+                && data.hoverActualDrop <= HOVER_ELYTRA_FLAT_MAX_ACTUAL_DROP
+                && deficit > HOVER_ELYTRA_FLAT_DROP_DEFICIT;
+        return data.hoverAirTicks >= minTicks && (deficit > allowedDeficit || flatNoDropGlide)
+            && (gliding || Math.abs(thisMove.yDistance) < HOVER_VERTICAL_PROGRESS
+                || thisMove.yDistance > expectedY + Magic.PREDICTION_EPSILON);
+    }
+
+
+    private double getHoverUnexpectedAscentDebt(final PlayerMoveData thisMove, final boolean gliding) {
+        if (!gliding || thisMove.yDistance <= 0.0D) {
+            return 0.0D;
+        }
+        /*
+         * Elytra anti-hover model: climbing without a firework is worse than simply
+         * missing descent, so count movement above the vanilla glide envelope as
+         * vertical debt in the same accumulated budget.
+         */
+        final double modelUpper = Math.max(0.0D, thisMove.yAllowedDistance);
+        return Math.max(0.0D, thisMove.yDistance - modelUpper);
+    }
+
+
+    private double getHoverExpectedY(final Player player, final PlayerMoveData thisMove,
+                                     final MovingData data, final boolean gliding) {
+        double expectedY = thisMove.yAllowedDistance;
+        if (Double.isNaN(expectedY) || Double.isInfinite(expectedY)) {
+            expectedY = 0.0D;
+        }
+        if (gliding) {
+            /*
+             * Elytra hover model: gliding may trade speed for lift, but without a
+             * firework or queued server velocity it still needs a downward budget
+             * over time. Horizontal progress alone must not reset hover.
+             */
+            return Math.min(expectedY, -HOVER_ELYTRA_MIN_DESCENT);
+        }
+        if (expectedY > -Magic.PREDICTION_EPSILON) {
+            expectedY = (data.hoverLastYVelocity - Magic.DEFAULT_GRAVITY) * Magic.FRICTION_MEDIUM_AIR;
+        }
+        return expectedY;
+    }
+
+
+    private void trimHoverAirBudget(final MovingData data) {
+        if (data.hoverAirTicks <= HOVER_AIR_BUDGET_WINDOW) {
+            return;
+        }
+        data.hoverAirTicks = HOVER_AIR_BUDGET_WINDOW / 2;
+        data.hoverExpectedDrop *= 0.5D;
+        data.hoverActualDrop *= 0.5D;
     }
 
 
@@ -2240,6 +2480,18 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
     private void checkFallDamageEvent(final Player player, final EntityDamageEvent event) {
         final IPlayerData pData = DataManager.getPlayerData(player);
         final MovingData data = pData.getGenericInstance(MovingData.class);
+        final long now = System.currentTimeMillis();
+        if (Bridge1_9.isGlidingWithElytra(player) || isRecentElytraNoFallReset(data, now)) {
+            /*
+             * Elytra NoFall model: valid glide descent should not become stored
+             * ordinary fall distance on the landing packet or the following fall
+             * damage event. SurvivalFly handles invalid gliding separately.
+             */
+            event.setCancelled(true);
+            data.clearNoFallData();
+            player.setFallDistance(0f);
+            return;
+        }
         if (player.isInsideVehicle()) {
             // Ignore vehicles (noFallFallDistance will be inaccurate anyway).
             data.clearNoFallData();
@@ -2584,7 +2836,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             final MovingData data = pData.getGenericInstance(MovingData.class);
             if (player.isDead() || player.isSleeping() || player.isInsideVehicle()) {
                 data.sfHoverTicks = -1;
-                // (Removed below.)
+                data.resetHoverAirBudget();
             }
             if (data.sfHoverTicks < 0) {
                 data.sfHoverLoginTicks = 0;
@@ -2601,6 +2853,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
             if (!cc.sfHoverCheck) {
                 rem.add(playerName);
                 data.sfHoverTicks = -1;
+                data.resetHoverAirBudget();
                 continue;
             }
             // Increase ticks here.
@@ -2662,7 +2915,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         final MovingData data = pData.getGenericInstance(MovingData.class);
         if (player.isDead() || player.isSleeping() || player.isInsideVehicle()) {
             data.sfHoverTicks = -1;
-            // (Removed below.)
+            data.resetHoverAirBudget();
         }
         if (data.sfHoverTicks < 0) {
             data.sfHoverLoginTicks = 0;
@@ -2679,6 +2932,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         if (!cc.sfHoverCheck) {
             rem.add(playerName);
             data.sfHoverTicks = -1;
+            data.resetHoverAirBudget();
             return;
         }
         // Increase ticks here.
@@ -2798,6 +3052,7 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
         if (info.from.isOnGroundOrResetCond() || info.from.isAboveLadder()) {
             res = true;
             data.sfHoverTicks = 0;
+            data.resetHoverAirBudget();
         }
         else {
             if (data.sfHoverTicks > cc.sfHoverTicks) {
@@ -2827,9 +3082,20 @@ public class MovingListener extends CheckListener implements TickListener, IRemo
     private void handleHoverViolation(final Player player, final PlayerLocation loc, 
                                       final MovingConfig cc, final MovingData data, final IPlayerData pData) {
         // Check nofall damage (!).
-        if (cc.sfHoverFallDamage && noFall.isEnabled(player, pData)) {
+        final long now = System.currentTimeMillis();
+        if (cc.sfHoverFallDamage && noFall.isEnabled(player, pData)
+                && !Bridge1_9.isGlidingWithElytra(player)
+                && !isRecentElytraNoFallReset(data, now)) {
             // Consider adding 3/3.5 to fall distance if fall distance > 0?
             noFall.checkDamage(player, loc.getY(), data, pData);
+        }
+        if (pData.isDebugActive(checkType)) {
+            final double deficit = data.hoverExpectedDrop - data.hoverActualDrop;
+            debug(player, "Hover descent budget violation: hoverAirTicks=" + data.hoverAirTicks
+                    + " hoverExpectedDrop=" + StringUtil.fdec6.format(data.hoverExpectedDrop)
+                    + " hoverActualDrop=" + StringUtil.fdec6.format(data.hoverActualDrop)
+                    + " hoverLastYVelocity=" + StringUtil.fdec6.format(data.hoverLastYVelocity)
+                    + " hoverDropDeficit=" + StringUtil.fdec6.format(deficit));
         }
         // Delegate violation handling.
         survivalFly.handleHoverViolation(player, loc, cc, data);

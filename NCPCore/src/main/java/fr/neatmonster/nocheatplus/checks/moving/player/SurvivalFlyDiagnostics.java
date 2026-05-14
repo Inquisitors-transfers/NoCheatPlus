@@ -181,7 +181,8 @@ final class SurvivalFlyDiagnostics {
                 .append(" movementMode=").append(movementMode)
                 .append(" subcheck=").append(subcheck)
                 .append(" summary=").append(summary)
-                .append(" addVL=").append(StringUtil.fdec3.format(result))
+                .append(tags.contains(SurvivalFlyTags.ELYTRA_MODEL_DATA_ONLY) ? " dataOnlyVL=" : " addVL=")
+                .append(StringUtil.fdec3.format(result))
                 .append(" totalVL=").append(StringUtil.fdec3.format(data.survivalFlyVL))
                 .append(" setback=").append(formatBukkitLocation(setback))
                 .append(" from=").append(formatLocation(from))
@@ -210,6 +211,7 @@ final class SurvivalFlyDiagnostics {
                 .append(" lastValid=").append(lastMove.toIsValid)
                 .append(" movementModel=").append(formatMovementModel(move, hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit))
                 .append(" physicsModel=").append(formatPhysicsModel(player, data, move, lastMove, hAllowedDistance, yAllowedDistance))
+                .append(" flightTrace=").append(formatFlightTrace(player, data, move, lastMove, movementMode, from, to))
                 .append(" modelProbe=").append(modelProbe)
                 .append(" elytraModel=").append(elytraModel)
                 .append(" tags=").append(tags);
@@ -278,6 +280,76 @@ final class SurvivalFlyDiagnostics {
         return builder.toString();
     }
 
+    static String formatFlightTrace(final Player player, final MovingData data,
+                                    final PlayerMoveData move, final PlayerMoveData lastMove,
+                                    final String movementMode, final PlayerLocation from,
+                                    final PlayerLocation to) {
+        /*
+         * Diagnostic info: this compact trace is meant for comparing labeled
+         * legit/hacked test windows in the server log without adding more model
+         * logic to SurvivalFly itself.
+         */
+        final Vector velocity = player.getVelocity();
+        final double velocityH = MathUtil.dist(velocity.getX(), velocity.getZ());
+        final double packetVelocityDx = move.xDistance - velocity.getX();
+        final double packetVelocityDy = move.yDistance - velocity.getY();
+        final double packetVelocityDz = move.zDistance - velocity.getZ();
+        final double lastY = lastMove.toIsValid ? lastMove.yDistance : Double.NaN;
+        final double lastH = lastMove.toIsValid ? lastMove.hDistance : Double.NaN;
+        final double gravity = data.lastGravity > 0.0D ? data.lastGravity : Magic.DEFAULT_GRAVITY;
+        final double frictionY = data.lastFrictionVertical != 0.0D ? data.lastFrictionVertical : Magic.FRICTION_MEDIUM_AIR;
+        final double gravityNextY = lastMove.toIsValid ? (lastMove.yDistance - gravity) * frictionY : Double.NaN;
+        final double yAccel = lastMove.toIsValid ? move.yDistance - lastMove.yDistance : Double.NaN;
+        final double hAccel = lastMove.toIsValid ? move.hDistance - lastMove.hDistance : Double.NaN;
+        final double gravityMiss = lastMove.toIsValid ? move.yDistance - gravityNextY : Double.NaN;
+        final double liftExtraY = lastMove.toIsValid ? Math.max(0.0D, gravityMiss) : Double.NaN;
+        final double hoverDropDeficit = Math.max(0.0D, data.hoverExpectedDrop - data.hoverActualDrop);
+        final Vector look = TrigUtil.getLookingDirection(to, player);
+        final double yawDelta = getYawDelta(from.getYaw(), to.getYaw());
+        final StringBuilder builder = new StringBuilder(420);
+        builder.append("mode=").append(movementMode)
+                .append(",trend=").append(formatTrend(move.yDistance))
+                .append(",lastTrend=").append(formatTrend(lastY))
+                .append(",pitch=").append(StringUtil.fdec3.format(from.getPitch())).append("->").append(StringUtil.fdec3.format(to.getPitch()))
+                .append(",pitchDelta=").append(StringUtil.fdec3.format(to.getPitch() - from.getPitch()))
+                .append(",pitchBand=").append(formatPitchBand(to.getPitch()))
+                .append(",yaw=").append(StringUtil.fdec3.format(from.getYaw())).append("->").append(StringUtil.fdec3.format(to.getYaw()))
+                .append(",yawDelta=").append(StringUtil.fdec3.format(yawDelta))
+                .append(",lookVector=").append(formatVector(look))
+                .append(",lookH=").append(StringUtil.fdec6.format(MathUtil.dist(look.getX(), look.getZ())))
+                .append(",lookY=").append(StringUtil.fdec6.format(look.getY()))
+                .append(",h=").append(StringUtil.fdec6.format(move.hDistance))
+                .append(",lastH=").append(formatNumber(lastH))
+                .append(",hDelta=").append(formatNumber(hAccel))
+                .append(",y=").append(StringUtil.fdec6.format(move.yDistance))
+                .append(",lastY=").append(formatNumber(lastY))
+                .append(",yDelta=").append(formatNumber(yAccel))
+                .append(",gravityNextY=").append(formatNumber(gravityNextY))
+                .append(",gravityMiss=").append(formatNumber(gravityMiss))
+                .append(",velocity=").append(formatVector(velocity))
+                .append(",velocityH=").append(StringUtil.fdec6.format(velocityH))
+                .append(",packetMinusVelocity=").append(formatVector(packetVelocityDx, packetVelocityDy, packetVelocityDz))
+                .append(",lift=extraY:").append(formatNumber(liftExtraY))
+                .append(",perVelocityH:").append(formatRatio(liftExtraY, velocityH))
+                .append(",glideRatio=").append(formatRatio(move.hDistance, Math.abs(move.yDistance)))
+                .append(",firework=").append(data.fireworksBoostDuration)
+                .append(",noFireworkAscent=ticks:").append(data.elytraNoFireworkAscentTicks)
+                .append(",debt:").append(StringUtil.fdec6.format(data.elytraNoFireworkAscentDebt))
+                .append(",budget:").append(formatNumber(data.elytraNoFireworkAscentBudget))
+                .append(",excess:").append(formatNumber(data.elytraNoFireworkAscentExcess))
+                .append(",neededH:").append(formatNumber(data.elytraNoFireworkNeededH))
+                .append(",startY:").append(data.elytraNoFireworkStart == null
+                        ? "na" : formatNumber(data.elytraNoFireworkStart.getY()))
+                .append(",descentCredit:").append(formatNumber(data.elytraNoFireworkDescentCredit))
+                .append(",creditUsed:").append(formatNumber(data.elytraNoFireworkDescentCreditUsed))
+                .append(",hover=ticks:").append(data.hoverAirTicks)
+                .append(",expectedDrop:").append(StringUtil.fdec6.format(data.hoverExpectedDrop))
+                .append(",actualDrop:").append(StringUtil.fdec6.format(data.hoverActualDrop))
+                .append(",dropDeficit:").append(StringUtil.fdec6.format(hoverDropDeficit))
+                .append(",lastYVel:").append(StringUtil.fdec6.format(data.hoverLastYVelocity));
+        return builder.toString();
+    }
+
     static String formatElytraModel(final Player player, final PlayerLocation from, final PlayerLocation to,
                                     final MovingData data, final PlayerMoveData move,
                                     final double hAllowedDistance, final double yAllowedDistance,
@@ -321,7 +393,50 @@ final class SurvivalFlyDiagnostics {
     }
 
     private static String formatNumber(final double value) {
-        return Double.isNaN(value) ? "na" : StringUtil.fdec6.format(value);
+        if (Double.isNaN(value)) {
+            return "na";
+        }
+        return Double.isInfinite(value) ? "inf" : StringUtil.fdec6.format(value);
+    }
+
+    private static String formatTrend(final double yDistance) {
+        if (Double.isNaN(yDistance)) {
+            return "na";
+        }
+        if (yDistance > Magic.PREDICTION_EPSILON) {
+            return "ascend";
+        }
+        if (yDistance < -Magic.PREDICTION_EPSILON) {
+            return "descend";
+        }
+        return "level";
+    }
+
+    private static String formatPitchBand(final float pitch) {
+        if (pitch <= -15.0f) {
+            return "UP_STEEP";
+        }
+        if (pitch <= -5.0f) {
+            return "UP";
+        }
+        if (pitch < 5.0f) {
+            return "LEVEL";
+        }
+        if (pitch < 30.0f) {
+            return "DOWN";
+        }
+        return "DOWN_STEEP";
+    }
+
+    private static double getYawDelta(final float fromYaw, final float toYaw) {
+        double delta = toYaw - fromYaw;
+        while (delta > 180.0D) {
+            delta -= 360.0D;
+        }
+        while (delta < -180.0D) {
+            delta += 360.0D;
+        }
+        return delta;
     }
 
     static String formatVector(final Vector vector) {

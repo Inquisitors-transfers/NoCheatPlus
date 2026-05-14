@@ -119,8 +119,9 @@ public class SurvivalFly extends Check {
     private static final double GROUNDED_ITEM_RESYNC_HORIZONTAL_OVER_GRACE = 0.12D;
     private static final double GROUNDED_ITEM_RESYNC_MOVE_GRACE = 0.25D;
     /*
-     * Lanterns, trapdoors, and carpets have thin support/collision shapes. The
-     * old full-block model can see these as air and repeatedly set players back.
+     * Lanterns, trapdoors, carpets, and layered snow have thin support/collision
+     * shapes. The old full-block model can see these as air and repeatedly set
+     * players back.
      */
     private static final double THIN_SUPPORT_HORIZONTAL_OVER_GRACE = 0.38D;
     private static final double THIN_SUPPORT_HORIZONTAL_MOVE_GRACE = 0.80D;
@@ -132,6 +133,8 @@ public class SurvivalFly extends Check {
     private static final double PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT = 0.0625D;
     private static final double PARTIAL_SUPPORT_VERTICAL_CLAMP_EPSILON = 0.025D;
     private static final double PARTIAL_SUPPORT_VERTICAL_CLAMP_MAX_DESCEND = 0.3125D;
+    private static final double SNOW_SUPPORT_LAYER_HEIGHT = 0.125D;
+    private static final double SNOW_SUPPORT_MAX_COLLISION_HEIGHT = 0.875D;
     private static final double NEWER_CLIENT_HORIZONTAL_OVER_GRACE = 0.04D;
     private static final double NEWER_CLIENT_HORIZONTAL_MOVE_GRACE = 0.34D;
     private static final double GROUNDED_MICRO_OVER_GRACE = 0.12D;
@@ -196,6 +199,34 @@ public class SurvivalFly extends Check {
     private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE = 0.12D;
     private static final double GLIDING_CURRENT_VELOCITY_TURN_YAW_EXTRA = 6.0D;
     private static final double GLIDING_CURRENT_VELOCITY_HORIZONTAL_MOVE_GRACE = 0.45D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_RESIDUAL = 0.06D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_SPEED_START = 0.45D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_SPEED_FACTOR = 0.18D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_SPEED_CAP = 0.42D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_DIVE_FACTOR = 0.90D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_TRADE_FACTOR = 0.55D;
+    private static final double GLIDING_NO_FIREWORK_CURRENT_VELOCITY_MIN_HORIZONTAL = 0.45D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_FACTOR = 0.70D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_CAP = 8.0D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_DECAY = 0.006D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_MIN_H = 0.45D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_FULL_H = 1.40D;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_CREDIT_TICK_CAP = 0.34D;
+    private static final double GLIDING_NO_FIREWORK_SETBACK_MIN_DROP = 1.25D;
+    private static final double GLIDING_NO_FIREWORK_SETBACK_MAX_DROP = 5.0D;
+    private static final double GLIDING_NO_FIREWORK_SETBACK_DEFICIT_FACTOR = 2.0D;
+    private static final double GLIDING_NO_FIREWORK_SETBACK_DEBT_FACTOR = 0.20D;
+    private static final double GLIDING_NO_FIREWORK_SETBACK_EXCESS_FACTOR = 4.0D;
+    private static final double GLIDING_NO_FIREWORK_START_SETBACK_MIN_GAIN = 0.40D;
+    private static final double GLIDING_NO_FIREWORK_START_SETBACK_MAX_HORIZONTAL = 80.0D;
+    private static final double GLIDING_NO_FIREWORK_DOWNWARD_VELOCITY_Y = -0.075D;
+    private static final double GLIDING_NO_FIREWORK_DOWNWARD_VELOCITY_MAX_DEBT = 0.20D;
+    private static final double GLIDING_NO_FIREWORK_ASCENT_DEBT_LIMIT = 0.32D;
+    private static final int GLIDING_NO_FIREWORK_ASCENT_TICK_LIMIT = 5;
+    private static final double GLIDING_NO_FIREWORK_DESCENT_DROP_DEFICIT = 0.52D;
+    private static final double GLIDING_NO_FIREWORK_FLAT_DROP_DEFICIT = 0.25D;
+    private static final double GLIDING_NO_FIREWORK_FLAT_MAX_ACTUAL_DROP = 0.02D;
+    private static final int GLIDING_NO_FIREWORK_DESCENT_BUDGET_MIN_TICKS = 45;
     private static final double GLIDING_STEEP_DIVE_ENERGY_EPSILON = 0.04D;
     private static final double GLIDING_VERTICAL_BELOW_MODEL_GRACE = 1.10D;
     private static final double GLIDING_VERTICAL_BELOW_MODEL_FIREWORK_GRACE = 1.50D;
@@ -209,6 +240,9 @@ public class SurvivalFly extends Check {
     private static final double GLIDING_FIREWORK_TURN_YAW_EXTRA = 10.0D;
     private static final double GLIDING_FIREWORK_PERPENDICULAR_RESIDUAL = 0.16D;
     private static final double GLIDING_FIREWORK_GROUND_PROXIMITY_VERTICAL_RESIDUAL = 0.08D;
+    private static final double GLIDING_FIREWORK_GRAVITY_VERTICAL_MATCH = 0.015D;
+    private static final double GLIDING_FIREWORK_VERTICAL_PRECISION = 0.03D;
+    private static final double GLIDING_FIREWORK_PARTIAL_VERTICAL_RESIDUAL = 0.18D;
     /*
      * False-positive tuning: wearing an elytra is not the same as actively
      * gliding. These handle launch and velocity transition packets before Bukkit
@@ -275,6 +309,12 @@ public class SurvivalFly extends Check {
     private static final double ELYTRA_EQUIPPED_SMALL_VERTICAL_MOVE_GRACE = 0.10D;
     private static final double ELYTRA_EQUIPPED_SMALL_VERTICAL_HORIZONTAL_OVER_GRACE = 0.35D;
     private static final double ELYTRA_EQUIPPED_SMALL_VERTICAL_HORIZONTAL_MOVE_GRACE = 0.45D;
+    private static final double ELYTRA_EQUIPPED_LAST_INVALID_ASCEND_VERTICAL_RESIDUAL = 0.08D;
+    private static final double ELYTRA_EQUIPPED_LAST_INVALID_ASCEND_MAX_MOVE = 0.24D;
+    private static final double ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL = 0.12D;
+    private static final double ELYTRA_EQUIPPED_GLIDE_COAST_PERPENDICULAR_RESIDUAL = 0.12D;
+    private static final double ELYTRA_EQUIPPED_GLIDE_COAST_VERTICAL_RESIDUAL = 0.09D;
+    private static final double ELYTRA_EQUIPPED_GLIDE_COAST_MIN_LAST_HORIZONTAL = 0.30D;
     private static final double COLLISION_VERTICAL_CORRECTION_OVER_GRACE = 0.18D;
     private static final double COLLISION_VERTICAL_CORRECTION_HORIZONTAL_OVER_GRACE = 0.35D;
     private static final double COLLISION_VERTICAL_CORRECTION_MOVE_GRACE = 0.35D;
@@ -587,6 +627,28 @@ public class SurvivalFly extends Check {
         yDistanceAboveLimit = applyEnvironmentalVerticalLeniency(player, pData, data, from, to, thisMove, lastMove,
                 yDistanceAboveLimit, hDistanceAboveLimit, resetFrom, resetTo);
         yAllowedDistance = thisMove.yAllowedDistance;
+        final double dataOnlyResult = (Math.max(hDistanceAboveLimit, 0.0) + Math.max(yDistanceAboveLimit, 0.0)) * 100D;
+        if (dataOnlyResult > 0.0 && isElytraModelDataOnly(player, cc)) {
+            /*
+             * Elytra model collection: log the exact model miss, but do not add
+             * VL or set back while we are still tuning the glide envelope.
+             */
+            addTag(SurvivalFlyTags.ELYTRA_MODEL_DATA_ONLY);
+            if (CheckUtils.shouldLogDebugToConsole()) {
+                try {
+                    logConsoleDetails(dataOnlyResult, player, from, to, null, data, pData, thisMove, lastMove,
+                            hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit,
+                            fromOnGround, resetFrom, toOnGround, resetTo, tick, now, multiMoveCount,
+                            isNormalOrPacketSplitMove);
+                }
+                catch (Throwable t) {
+                    player.getServer().getLogger().info("[NCP][SurvivalFly][detail] data-only diagnostic logging failed for player="
+                            + player.getName() + " reason=" + t.getClass().getSimpleName());
+                }
+            }
+            hDistanceAboveLimit = 0.0D;
+            yDistanceAboveLimit = 0.0D;
+        }
 
 
         ////////////////////////////
@@ -599,6 +661,10 @@ public class SurvivalFly extends Check {
             data.ws.setJustUsedIds(null);
         }
         else tagsLength = 0; // JIT vs. IDE.
+        if (CheckUtils.shouldLogDebugToConsole() && shouldLogFlightTraceSample(player, data, thisMove)) {
+            logFlightTraceSample(player, data, pData, from, to, thisMove, lastMove,
+                    fromOnGround, resetFrom, toOnGround, resetTo, tick);
+        }
 
 
         //////////////////////////////////////
@@ -849,9 +915,10 @@ public class SurvivalFly extends Check {
             // No Gliding, no deal
             return new double[] {thisMove.hDistance, 0.0, thisMove.yDistance, 0.0};
         }
-        addTag(data.fireworksBoostDuration > 0 ? "mode_elytra_firework" : "mode_elytra_gliding");
+        addTag(data.fireworksBoostDuration > 0
+                ? SurvivalFlyTags.MODE_ELYTRA_FIREWORK : SurvivalFlyTags.MODE_ELYTRA_GLIDING);
         if (data.fireworksBoostDuration > 0) {
-            addTag("glide_firework_active");
+            addTag(SurvivalFlyTags.GLIDE_FIREWORK_ACTIVE);
         }
         // Note: WASD key presses, as well as sneaking and item-use are irrelevant when gliding.
         // Initialize speed.
@@ -951,6 +1018,7 @@ public class SurvivalFly extends Check {
         if (MagicWorkarounds.checkPostPredictWorkaround(data, fromOnGround, toOnGround, from, to, thisMove.yAllowedDistance, player, isNormalOrPacketSplitMove)) {
             thisMove.yAllowedDistance = thisMove.yDistance;
         }
+        final boolean noFireworkAscentEnergyViolation = updateNoFireworkGlidingAscentEnergy(player, data, from, thisMove, lastMove);
         
         ////////////////////////////
         /// Calculate offests     //
@@ -964,6 +1032,17 @@ public class SurvivalFly extends Check {
             thisMove.yAllowedDistance = thisMove.yDistance;
             addTag("glide_current_velocity_vertical_model");
         }
+        else if (currentGlidingVerticalVelocityEnvelopeCovers(player, thisMove,
+                thisMove.yAllowedDistance, Math.abs(offsetV))) {
+            /*
+             * Elytra current velocity model: after firework handoff/reload/packet
+             * ordering, Bukkit can still expose upward glide velocity while the
+             * vanilla tick prediction has lost that energy source. Accept only
+             * packets inside the server velocity envelope.
+             */
+            thisMove.yAllowedDistance = thisMove.yDistance;
+            addTag("glide_current_velocity_vertical_envelope_model");
+        }
         else {
             // If velocity can be used for compensation, use it.
             if (data.getOrUseVerticalVelocity(thisMove.yDistance).isEmpty()) {
@@ -972,7 +1051,36 @@ public class SurvivalFly extends Check {
                 addTag("vdistrel");
             }
         }
-
+        if (noFireworkAscentEnergyViolation) {
+            /*
+             * Elytra no-firework energy model: the model above tracks sustained
+             * climb debt separately from the one-packet vanilla prediction. If
+             * there is no firework, no queued vertical velocity, no riptide, and
+             * no descent/speed budget to pay for the climb, this must become an
+             * active setback immediately. Do not let the generic current-velocity
+             * vertical branch hide a no-energy ascent; legitimate handoff velocity
+             * is accepted inside updateNoFireworkGlidingAscentEnergy instead.
+             */
+            yDistanceAboveLimit = Math.max(yDistanceAboveLimit,
+                    Math.max(GLIDING_VERTICAL_PRECISION_GRACE, data.elytraNoFireworkAscentExcess));
+            addTag("glide_no_firework_ascent_energy_enforced");
+            addTag("vdistrel");
+        }
+        final double noFireworkDescentBudgetOver = getNoFireworkGlidingDescentBudgetOver(player, data, thisMove);
+        if (noFireworkDescentBudgetOver > 0.0D) {
+            /*
+             * Elytra no-firework descent budget model: packet-shaped hover can
+             * stay under the one-packet ascent limit by repeatedly sending tiny
+             * positive/flat Y. Once the accumulated glide budget says descent is
+             * missing and the helper has ruled out firework/current upward velocity,
+             * surface that as an active SurvivalFly model miss instead of waiting
+             * only for the legacy hover tick action path.
+             */
+            yDistanceAboveLimit = Math.max(yDistanceAboveLimit,
+                    Math.max(GLIDING_VERTICAL_PRECISION_GRACE, noFireworkDescentBudgetOver));
+            addTag("glide_no_firework_descent_budget_enforced");
+            addTag("vdistrel");
+        }
         thisMove.hAllowedDistance = MathUtil.dist(thisMove.xAllowedDistance, thisMove.zAllowedDistance);
         final double offsetH = thisMove.hDistance - thisMove.hAllowedDistance;
         if (offsetH < Magic.PREDICTION_EPSILON) {
@@ -1004,6 +1112,10 @@ public class SurvivalFly extends Check {
             player.sendMessage(ChatColor.YELLOW + "[SurvivalFly] hdistrel: predict=" + StringUtil.fdec6.format(thisMove.hAllowedDistance) + ", actual=" + StringUtil.fdec6.format(thisMove.hDistance) + ", offset=" + StringUtil.fdec6.format(offsetH));
         }
         return new double[]{thisMove.hAllowedDistance, hDistanceAboveLimit, thisMove.yAllowedDistance, yDistanceAboveLimit};
+    }
+
+    private boolean isElytraModelDataOnly(final Player player, final MovingConfig cc) {
+        return !cc.sfElytraEnforce && Bridge1_9.isGliding(player);
     }
     
     /**
@@ -1581,7 +1693,9 @@ public class SurvivalFly extends Check {
                         || acceptsElytraEquippedFireworkHorizontalModel(player, data, from, to, thisMove, lastMove,
                                 hDistanceAboveLimit);
             case ELYTRA_EQUIPPED_TRANSITION:
-                return acceptsElytraEquippedQueuedVelocityHorizontalModel(player, data, from, to, thisMove, hDistanceAboveLimit)
+                return acceptsElytraEquippedGlideCoastHorizontalModel(player, pData, data, from, to,
+                        thisMove, lastMove, hDistanceAboveLimit)
+                        || acceptsElytraEquippedQueuedVelocityHorizontalModel(player, data, from, to, thisMove, hDistanceAboveLimit)
                         || acceptsElytraEquippedVelocityHorizontalModel(player, from, to, thisMove, lastMove, hDistanceAboveLimit)
                         || acceptsElytraEquippedGroundHorizontalModel(player, from, to, thisMove, lastMove, hDistanceAboveLimit)
                         || acceptsElytraEquippedVelocityHandoffHorizontalModel(player, from, to, thisMove, lastMove, hDistanceAboveLimit)
@@ -1681,9 +1795,13 @@ public class SurvivalFly extends Check {
                                 yDistanceAboveLimit, hDistanceAboveLimit);
             case ELYTRA_EQUIPPED_TRANSITION:
                 return isElytraEquippedHalfStepVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
+                        || acceptsElytraEquippedGlideCoastVerticalModel(player, pData, data, from, to,
+                                thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedPartialSupportVerticalModel(player, from, to, thisMove, lastMove,
                                 yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedVelocityVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
+                        || acceptsElytraEquippedLastInvalidAscendVerticalModel(player, from, to, thisMove, lastMove,
+                                yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedStaleAscendVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedVelocityHandoffVerticalModel(player, from, to, thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)
                         || acceptsElytraEquippedGlideExitVerticalModel(player, thisMove, lastMove,
@@ -2352,7 +2470,7 @@ public class SurvivalFly extends Check {
                                                           final PlayerMoveData thisMove,
                                                           final double hDistanceAboveLimit) {
         if (!Bridge1_9.isGliding(player)
-                || !tags.contains("glide_horizontal_prediction_miss")
+                || !tags.contains(SurvivalFlyTags.GLIDE_HORIZONTAL_PREDICTION_MISS)
                 || thisMove.from.inLiquid || thisMove.to.inLiquid) {
             return false;
         }
@@ -2365,6 +2483,14 @@ public class SurvivalFly extends Check {
         }
         if (currentGlidingActualVelocityMatches(player, thisMove)) {
             tags.add("glide_current_velocity_horizontal_model");
+            return true;
+        }
+        if (turningCurrentGlidingVelocityMatches(player, from, to, thisMove)) {
+            tags.add("glide_current_velocity_turn_horizontal_model");
+            return true;
+        }
+        if (splitCurrentGlidingVelocityMagnitudeCovers(player, thisMove)) {
+            tags.add("glide_split_velocity_horizontal_model");
             return true;
         }
         if (queuedGlidingVelocityMatches(data, thisMove)) {
@@ -2383,8 +2509,8 @@ public class SurvivalFly extends Check {
                                                        final double hDistanceAboveLimit) {
         if (!Bridge1_9.isGliding(player)
                 || !tags.contains("glide_pitch_down_steep")
-                || !tags.contains("glide_horizontal_prediction_miss")
-                || !tags.contains("glide_vertical_actual_above_model")
+                || !tags.contains(SurvivalFlyTags.GLIDE_HORIZONTAL_PREDICTION_MISS)
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_ABOVE_MODEL)
                 || thisMove.yDistance >= -Magic.GRAVITY_MAX
                 || thisMove.from.inLiquid || thisMove.to.inLiquid) {
             return false;
@@ -2465,6 +2591,34 @@ public class SurvivalFly extends Check {
         return true;
     }
 
+    private boolean turningCurrentGlidingVelocityMatches(final Player player, final PlayerLocation from,
+                                                        final PlayerLocation to,
+                                                        final PlayerMoveData thisMove) {
+        final Vector velocity = player.getVelocity();
+        final double velocityH = MathUtil.dist(velocity.getX(), velocity.getZ());
+        if (velocityH <= Magic.PREDICTION_EPSILON) {
+            return false;
+        }
+        final double yawTurn = Math.min(90.0D,
+                Math.abs(getYawDelta(from.getYaw(), to.getYaw())) + GLIDING_CURRENT_VELOCITY_TURN_YAW_EXTRA);
+        final double turnPerpendicular = velocityH * Math.sin(yawTurn * TrigUtil.toRadians)
+                + GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE;
+        return horizontalVelocityVectorMatches(velocity.getX(), velocity.getZ(),
+                thisMove.xDistance, thisMove.zDistance,
+                GLIDING_CURRENT_VELOCITY_HORIZONTAL_AMOUNT_GRACE, turnPerpendicular);
+    }
+
+    private boolean splitCurrentGlidingVelocityMagnitudeCovers(final Player player,
+                                                              final PlayerMoveData thisMove) {
+        if (thisMove.multiMoveCount <= 0) {
+            return false;
+        }
+        final Vector velocity = player.getVelocity();
+        final double velocityH = MathUtil.dist(velocity.getX(), velocity.getZ());
+        return velocityH > Magic.PREDICTION_EPSILON
+                && thisMove.hDistance <= velocityH + GLIDING_CURRENT_VELOCITY_HORIZONTAL_AMOUNT_GRACE;
+    }
+
     private double[] getQueuedGlidingVelocity(final MovingData data, final PlayerMoveData thisMove) {
         final List<PairEntry> queued = data.getHorizontalVelocityTracker().peekCovering(thisMove.xDistance, thisMove.zDistance,
                 1, Integer.MAX_VALUE, GLIDING_CURRENT_VELOCITY_HORIZONTAL_PERPENDICULAR_GRACE);
@@ -2528,14 +2682,50 @@ public class SurvivalFly extends Check {
             tags.add(acceptedTag + "_limit_miss");
             return false;
         }
-        if (!horizontalLookDirectionMatches(player, to, thisMove, horizontalLimit,
+        if (horizontalLookDirectionMatches(player, to, thisMove, horizontalLimit,
                 ELYTRA_LANDING_INERTIA_HORIZONTAL_RESIDUAL,
                 ELYTRA_LANDING_INERTIA_PERPENDICULAR_RESIDUAL)) {
-            tags.add(acceptedTag + "_vector_miss");
-            return false;
+            tags.add(acceptedTag + "_look_vector");
+            tags.add(acceptedTag);
+            return true;
         }
-        tags.add(acceptedTag);
-        return true;
+        if (horizontalLandingInertiaVectorMatches(player, data, thisMove, lastMove, acceptedTag)) {
+            tags.add(acceptedTag);
+            return true;
+        }
+        tags.add(acceptedTag + "_vector_miss");
+        return false;
+    }
+
+    private boolean horizontalLandingInertiaVectorMatches(final Player player, final MovingData data,
+                                                          final PlayerMoveData thisMove,
+                                                          final PlayerMoveData lastMove,
+                                                          final String acceptedTag) {
+        /*
+         * Elytra landing model: contact with ground, lanterns, carpets, slabs, or
+         * similar support shapes keeps the incoming glide vector for a packet.
+         * It should not be forced to match the player's current look direction.
+         */
+        final Vector velocity = player.getVelocity();
+        if (horizontalVelocityVectorMatches(velocity.getX(), velocity.getZ(), thisMove.xDistance, thisMove.zDistance,
+                ELYTRA_LANDING_INERTIA_HORIZONTAL_RESIDUAL,
+                ELYTRA_LANDING_INERTIA_PERPENDICULAR_RESIDUAL)) {
+            tags.add(acceptedTag + "_current_velocity_vector");
+            return true;
+        }
+        if (lastMove.toIsValid
+                && horizontalVelocityVectorMatches(lastMove.xDistance, lastMove.zDistance,
+                        thisMove.xDistance, thisMove.zDistance,
+                        ELYTRA_LANDING_INERTIA_HORIZONTAL_RESIDUAL,
+                        ELYTRA_LANDING_INERTIA_PERPENDICULAR_RESIDUAL)) {
+            tags.add(acceptedTag + "_last_move_vector");
+            return true;
+        }
+        if (queuedGlidingVelocityMatches(data, thisMove)) {
+            tags.add(acceptedTag + "_queued_velocity_vector");
+            return true;
+        }
+        return false;
     }
 
     private boolean isElytraLandingInertiaContext(final Player player, final MovingData data,
@@ -2556,7 +2746,7 @@ public class SurvivalFly extends Check {
         final boolean partialSupport = isPartialSupportNear(from, to) || isPartialSupportLandingBlock(to);
         final boolean landingContact = isGroundishStepMove(from, to, thisMove)
                 || thisMove.collideY
-                || partialSupport && getPartialSupportVerticalClampModel(thisMove.yDistance) > 0.0D
+                || partialSupport && getPartialSupportVerticalClampModel(from, to, thisMove.yDistance) > 0.0D
                 || partialSupport && getPartialSupportLandingClampFraction(to) >= 0.0D;
         if (!landingContact && !partialSupport) {
             return false;
@@ -3249,7 +3439,7 @@ public class SurvivalFly extends Check {
         // Model cleanup: only select partial-support when the collision-shape envelope can plausibly own this move.
         return thisMove.hDistance <= horizontalLimit
                 && (thisMove.yDistance <= verticalLimit
-                        || getPartialSupportVerticalClampModel(thisMove.yDistance) > 0.0D
+                        || getPartialSupportVerticalClampModel(from, to, thisMove.yDistance) > 0.0D
                         || getPartialSupportLandingClampFraction(to) >= 0.0D);
     }
 
@@ -3353,7 +3543,7 @@ public class SurvivalFly extends Check {
     private boolean acceptsPartialSupportVerticalClampModel(final PlayerLocation from, final PlayerLocation to,
                                                             final PlayerMoveData thisMove,
                                                             final double yDistanceAboveLimit) {
-        final double verticalClamp = getPartialSupportVerticalClampModel(thisMove.yDistance);
+        final double verticalClamp = getPartialSupportVerticalClampModel(from, to, thisMove.yDistance);
         if (verticalClamp > 0.0D && Math.abs(thisMove.yDistance + verticalClamp) <= PARTIAL_SUPPORT_VERTICAL_CLAMP_EPSILON) {
             if (thisMove.yDistance > thisMove.yAllowedDistance
                     && yDistanceAboveLimit <= getModelOverLimit(thisMove.yAllowedDistance,
@@ -3403,14 +3593,18 @@ public class SurvivalFly extends Check {
         return isPartialSupportBlock(to.getBlockTypeBelow()) || isPartialSupportBlock(to.getBlockType());
     }
 
-    private double getPartialSupportVerticalClampModel(final double yDistance) {
+    private double getPartialSupportVerticalClampModel(final PlayerLocation from, final PlayerLocation to,
+                                                       final double yDistance) {
         final double descend = -yDistance;
+        final boolean snowSupport = from != null && to != null && isSnowSupportNear(from, to);
+        final double maxDescend = snowSupport
+                ? SNOW_SUPPORT_MAX_COLLISION_HEIGHT : PARTIAL_SUPPORT_VERTICAL_CLAMP_MAX_DESCEND;
+        final double unit = snowSupport ? SNOW_SUPPORT_LAYER_HEIGHT : PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT;
         if (descend <= Magic.PREDICTION_EPSILON
-                || descend > PARTIAL_SUPPORT_VERTICAL_CLAMP_MAX_DESCEND) {
+                || descend > maxDescend) {
             return 0.0D;
         }
-        final double clamp = Math.round(descend / PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT)
-                * PARTIAL_SUPPORT_VERTICAL_CLAMP_UNIT;
+        final double clamp = Math.round(descend / unit) * unit;
         if (clamp <= 0.0D
                 || Math.abs(descend - clamp) > PARTIAL_SUPPORT_VERTICAL_CLAMP_EPSILON) {
             return 0.0D;
@@ -3496,6 +3690,10 @@ public class SurvivalFly extends Check {
     }
 
     private double getPartialSupportStepHeightModel(final PlayerLocation from, final PlayerLocation to) {
+        if (isSnowSupportNear(from, to)) {
+            // Snow model: layer collision is quantized in 1/8-block steps and can rise above a half block.
+            return Math.max(SNOW_SUPPORT_LAYER_HEIGHT, getSnowSupportHeightModel(from, to));
+        }
         return isPartialSupportNear(from, to) ? PARTIAL_SUPPORT_STEP_HEIGHT_MODEL : 0.0D;
     }
 
@@ -3988,7 +4186,7 @@ public class SurvivalFly extends Check {
                                                           final PlayerMoveData lastMove,
                                                           final double hDistanceAboveLimit) {
         if (!isGlidingFireworkModelContext(player, data, from, to, thisMove)
-                || !tags.contains("glide_horizontal_prediction_miss")) {
+                || !tags.contains(SurvivalFlyTags.GLIDE_HORIZONTAL_PREDICTION_MISS)) {
             return false;
         }
         if (acceptsGlidingFireworkSkippedBoostHorizontalModel(player, pData, data, from, to, thisMove, lastMove,
@@ -4072,8 +4270,8 @@ public class SurvivalFly extends Check {
             return false;
         }
         final double[] packetOrderModel = getElytraEquippedFireworkModelVector(player, data, to, thisMove, lastMove);
-        final double horizontalLimit = getFireworkHorizontalModelLimit(player, thisMove, packetOrderModel,
-                ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL);
+        final double horizontalLimit = getElytraEquippedFireworkHorizontalModelLimit(player, from, to,
+                thisMove, packetOrderModel);
         if (thisMove.hDistance > horizontalLimit
                 || hDistanceAboveLimit > getModelOverLimit(thisMove.hAllowedDistance,
                         horizontalLimit, ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL)) {
@@ -4098,13 +4296,34 @@ public class SurvivalFly extends Check {
         return false;
     }
 
+    private double getElytraEquippedFireworkHorizontalModelLimit(final Player player,
+                                                                 final PlayerLocation from,
+                                                                 final PlayerLocation to,
+                                                                 final PlayerMoveData thisMove,
+                                                                 final double[] model) {
+        double limit = getFireworkHorizontalModelLimit(player, thisMove, model,
+                ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL);
+        if (isGroundishStepMove(from, to, thisMove)) {
+            /*
+             * Elytra model: if Bukkit still reports "wearing elytra on ground"
+             * while a rocket boost is active, the packet can contain both the
+             * boost vector and one normal ground-input carry.
+             */
+            final double modelH = MathUtil.dist(model[0], model[2]);
+            limit = Math.max(limit, Math.max(thisMove.hAllowedDistance,
+                    modelH + playerInputHorizontalCarry(thisMove))
+                    + ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL);
+        }
+        return limit;
+    }
+
     private boolean isGlidingFireworkModelContext(final Player player, final MovingData data,
                                                   final PlayerLocation from, final PlayerLocation to,
                                                   final PlayerMoveData thisMove) {
         // Model cleanup: firework boost prediction is only valid while the client is actively gliding in open space.
         return Bridge1_9.isGliding(player)
                 && data.fireworksBoostDuration > 0
-                && tags.contains("glide_firework_active")
+                && tags.contains(SurvivalFlyTags.GLIDE_FIREWORK_ACTIVE)
                 && !from.isInLiquid() && !to.isInLiquid()
                 && !thisMove.from.inLiquid && !thisMove.to.inLiquid;
     }
@@ -4684,6 +4903,89 @@ public class SurvivalFly extends Check {
                         + ELYTRA_EQUIPPED_GROUND_HORIZONTAL_OVER_GRACE));
     }
 
+    private boolean acceptsElytraEquippedGlideCoastHorizontalModel(final Player player,
+                                                                   final IPlayerData pData,
+                                                                   final MovingData data,
+                                                                   final PlayerLocation from,
+                                                                   final PlayerLocation to,
+                                                                   final PlayerMoveData thisMove,
+                                                                   final PlayerMoveData lastMove,
+                                                                   final double hDistanceAboveLimit) {
+        final double[] model = getElytraEquippedGlideCoastModel(player, pData, data, from, to, thisMove, lastMove);
+        if (model == null) {
+            return false;
+        }
+        final double horizontalLimit = Math.max(thisMove.hAllowedDistance,
+                MathUtil.dist(model[0], model[2]) + ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL);
+        if (thisMove.hDistance <= horizontalLimit
+                && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
+                        horizontalLimit, ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL)
+                && horizontalVelocityVectorMatches(model[0], model[2], thisMove.xDistance, thisMove.zDistance,
+                        ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL,
+                        ELYTRA_EQUIPPED_GLIDE_COAST_PERPENDICULAR_RESIDUAL)) {
+            tags.add("elytra_equipped_glide_coast_horizontal_model");
+            return true;
+        }
+        tags.add("elytra_equipped_glide_coast_horizontal_model_miss");
+        return false;
+    }
+
+    private boolean acceptsElytraEquippedGlideCoastVerticalModel(final Player player,
+                                                                 final IPlayerData pData,
+                                                                 final MovingData data,
+                                                                 final PlayerLocation from,
+                                                                 final PlayerLocation to,
+                                                                 final PlayerMoveData thisMove,
+                                                                 final PlayerMoveData lastMove,
+                                                                 final double yDistanceAboveLimit,
+                                                                 final double hDistanceAboveLimit) {
+        final double[] model = getElytraEquippedGlideCoastModel(player, pData, data, from, to, thisMove, lastMove);
+        if (model == null) {
+            return false;
+        }
+        final double horizontalLimit = Math.max(thisMove.hAllowedDistance,
+                MathUtil.dist(model[0], model[2]) + ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL);
+        if (thisMove.hDistance <= horizontalLimit
+                && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
+                        horizontalLimit, ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL)
+                && horizontalVelocityVectorMatches(model[0], model[2], thisMove.xDistance, thisMove.zDistance,
+                        ELYTRA_EQUIPPED_GLIDE_COAST_HORIZONTAL_RESIDUAL,
+                        ELYTRA_EQUIPPED_GLIDE_COAST_PERPENDICULAR_RESIDUAL)
+                && matchesVerticalModel(thisMove.yDistance, model[1], ELYTRA_EQUIPPED_GLIDE_COAST_VERTICAL_RESIDUAL)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - model[1])
+                        + ELYTRA_EQUIPPED_GLIDE_COAST_VERTICAL_RESIDUAL) {
+            tags.add("elytra_equipped_glide_coast_vertical_model");
+            return true;
+        }
+        tags.add("elytra_equipped_glide_coast_vertical_model_miss");
+        return false;
+    }
+
+    private double[] getElytraEquippedGlideCoastModel(final Player player,
+                                                      final IPlayerData pData,
+                                                      final MovingData data,
+                                                      final PlayerLocation from,
+                                                      final PlayerLocation to,
+                                                      final PlayerMoveData thisMove,
+                                                      final PlayerMoveData lastMove) {
+        /*
+         * Elytra transition model: Folia/Bukkit can clear the gliding flag before
+         * the client stops applying vanilla glide physics. In that case the next
+         * packet should match the normal no-firework glide tick, not walking or
+         * plain air gravity.
+         */
+        if (!Bridge1_9.isWearingElytra(player)
+                || Bridge1_9.isGliding(player)
+                || data.fireworksBoostDuration > 0
+                || !lastMove.toIsValid
+                || lastMove.hDistance < ELYTRA_EQUIPPED_GLIDE_COAST_MIN_LAST_HORIZONTAL
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return null;
+        }
+        return getGlidingNoFireworkModelVector(player, pData, data, to, lastMove);
+    }
+
     private boolean acceptsElytraEquippedDescendHorizontalModel(final Player player,
                                                                 final PlayerMoveData thisMove,
                                                                 final double hDistanceAboveLimit) {
@@ -5005,8 +5307,8 @@ public class SurvivalFly extends Check {
             return false;
         }
         final double[] packetOrderModel = getElytraEquippedFireworkModelVector(player, data, to, thisMove, lastMove);
-        final double horizontalLimit = getFireworkHorizontalModelLimit(player, thisMove, packetOrderModel,
-                ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL);
+        final double horizontalLimit = getElytraEquippedFireworkHorizontalModelLimit(player, from, to,
+                thisMove, packetOrderModel);
         if (thisMove.hDistance > horizontalLimit
                 || hDistanceAboveLimit > getModelOverLimit(thisMove.hAllowedDistance,
                         horizontalLimit, ELYTRA_EQUIPPED_FIREWORK_HORIZONTAL_RESIDUAL)) {
@@ -5035,8 +5337,16 @@ public class SurvivalFly extends Check {
                                                         final double yDistanceAboveLimit,
                                                         final double hDistanceAboveLimit) {
         if (!isGlidingFireworkModelContext(player, data, from, to, thisMove)
-                || !tags.contains("glide_vertical_prediction_miss")) {
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_PREDICTION_MISS)) {
             return false;
+        }
+        if (acceptsGlidingFireworkSkippedBoostVerticalModel(player, pData, data, from, to,
+                thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            return true;
+        }
+        if (acceptsGlidingFireworkGravityContinuationVerticalModel(player, data, from, to,
+                thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+            return true;
         }
         final double[] packetOrderModel = getFireworkPacketOrderModelVector(player, data, to, thisMove, 1);
         final double horizontalLimit = getFireworkHorizontalModelLimit(player, thisMove, packetOrderModel,
@@ -5046,6 +5356,10 @@ public class SurvivalFly extends Check {
                         horizontalLimit, GLIDING_FIREWORK_PACKET_ORDER_HORIZONTAL_RESIDUAL)) {
             tags.add("elytra_firework_vertical_h_miss");
             return false;
+        }
+        if (yDistanceAboveLimit <= GLIDING_FIREWORK_VERTICAL_PRECISION) {
+            tags.add("elytra_firework_vertical_precision_model");
+            return true;
         }
         if (verticalFireworkModelMatches(player, thisMove, packetOrderModel[1],
                 GLIDING_FIREWORK_PACKET_ORDER_VERTICAL_RESIDUAL, yDistanceAboveLimit)) {
@@ -5057,11 +5371,11 @@ public class SurvivalFly extends Check {
             tags.add("elytra_firework_current_velocity_vertical_model");
             return true;
         }
-        if (acceptsGlidingFireworkSkippedBoostVerticalModel(player, pData, data, from, to,
-                thisMove, lastMove, yDistanceAboveLimit, hDistanceAboveLimit)) {
+        final double[] inertialModel = getFireworkInertialLookModelVector(player, data, to, lastMove);
+        if (acceptsGlidingFireworkPartialVerticalEnvelopeModel(player, thisMove, lastMove, packetOrderModel,
+                inertialModel, yDistanceAboveLimit, hDistanceAboveLimit)) {
             return true;
         }
-        final double[] inertialModel = getFireworkInertialLookModelVector(player, data, to, lastMove);
         if (verticalFireworkModelMatches(player, thisMove, inertialModel[1],
                 GLIDING_FIREWORK_PACKET_ORDER_VERTICAL_RESIDUAL, yDistanceAboveLimit)) {
             tags.add("elytra_firework_inertial_vertical_model");
@@ -5075,6 +5389,43 @@ public class SurvivalFly extends Check {
         return false;
     }
 
+    private boolean acceptsGlidingFireworkPartialVerticalEnvelopeModel(final Player player,
+                                                                       final PlayerMoveData thisMove,
+                                                                       final PlayerMoveData lastMove,
+                                                                       final double[] packetOrderModel,
+                                                                       final double[] inertialModel,
+                                                                       final double yDistanceAboveLimit,
+                                                                       final double hDistanceAboveLimit) {
+        if (!lastMove.toIsValid
+                || hDistanceAboveLimit > GLIDING_HORIZONTAL_PRECISION_GRACE
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_BELOW_MODEL)) {
+            return false;
+        }
+        /*
+         * Elytra firework model: Folia/packet order can expose only part of the
+         * rocket Y for one packet. The packet must still sit inside the vanilla
+         * interval between gravity continuation and the computed boost vectors.
+         */
+        final double gravityModel = getAirInertiaVerticalModel(lastMove);
+        final double velocityY = player.getVelocity().getY();
+        final double boostModel = Math.max(Math.max(packetOrderModel[1], inertialModel[1]), velocityY);
+        final double lower = Math.min(gravityModel, boostModel) - GLIDING_FIREWORK_PARTIAL_VERTICAL_RESIDUAL;
+        final double upper = Math.max(gravityModel, boostModel) + GLIDING_FIREWORK_PARTIAL_VERTICAL_RESIDUAL;
+        if (thisMove.yDistance < lower || thisMove.yDistance > upper) {
+            tags.add("elytra_firework_partial_vertical_envelope_miss");
+            return false;
+        }
+        final double nearestModel = Math.abs(thisMove.yDistance - gravityModel) <= Math.abs(thisMove.yDistance - boostModel)
+                ? gravityModel : boostModel;
+        if (yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - nearestModel)
+                + GLIDING_FIREWORK_PARTIAL_VERTICAL_RESIDUAL) {
+            tags.add("elytra_firework_partial_vertical_envelope_model");
+            return true;
+        }
+        tags.add("elytra_firework_partial_vertical_over_miss");
+        return false;
+    }
+
     private boolean acceptsGlidingFireworkSkippedBoostVerticalModel(final Player player, final IPlayerData pData,
                                                                     final MovingData data,
                                                                     final PlayerLocation from,
@@ -5084,7 +5435,7 @@ public class SurvivalFly extends Check {
                                                                     final double yDistanceAboveLimit,
                                                                     final double hDistanceAboveLimit) {
         if (!isGlidingFireworkModelContext(player, data, from, to, thisMove)
-                || !tags.contains("glide_vertical_prediction_miss")
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_PREDICTION_MISS)
                 || from.isInLiquid() || to.isInLiquid()
                 || thisMove.from.inLiquid || thisMove.to.inLiquid) {
             return false;
@@ -5111,6 +5462,36 @@ public class SurvivalFly extends Check {
             return true;
         }
         tags.add("elytra_firework_skipped_boost_vertical_miss");
+        return false;
+    }
+
+    private boolean acceptsGlidingFireworkGravityContinuationVerticalModel(final Player player,
+                                                                           final MovingData data,
+                                                                           final PlayerLocation from,
+                                                                           final PlayerLocation to,
+                                                                           final PlayerMoveData thisMove,
+                                                                           final PlayerMoveData lastMove,
+                                                                           final double yDistanceAboveLimit,
+                                                                           final double hDistanceAboveLimit) {
+        if (!isGlidingFireworkModelContext(player, data, from, to, thisMove)
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_PREDICTION_MISS)
+                || !lastMove.toIsValid
+                || hDistanceAboveLimit > GLIDING_HORIZONTAL_PRECISION_GRACE) {
+            return false;
+        }
+        final double gravityModel = getAirInertiaVerticalModel(lastMove);
+        if (matchesVerticalModel(thisMove.yDistance, gravityModel,
+                GLIDING_FIREWORK_GRAVITY_VERTICAL_MATCH)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - gravityModel)
+                        + GLIDING_FIREWORK_GRAVITY_VERTICAL_MATCH) {
+            /*
+             * Elytra firework model: some rocket packet-order cases skip the
+             * boost Y for one packet but still continue vanilla gravity exactly.
+             */
+            tags.add("elytra_firework_gravity_continuation_vertical_model");
+            return true;
+        }
+        tags.add("elytra_firework_gravity_continuation_vertical_model_miss");
         return false;
     }
 
@@ -5163,7 +5544,7 @@ public class SurvivalFly extends Check {
                                                                        final double yDistanceAboveLimit,
                                                                        final double hDistanceAboveLimit) {
         if (!lastMove.toIsValid
-                || !tags.contains("glide_vertical_actual_below_model")
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_BELOW_MODEL)
                 || thisMove.yDistance >= -Magic.PREDICTION_EPSILON
                 || hDistanceAboveLimit > GLIDING_HORIZONTAL_PRECISION_GRACE
                 || thisMove.hDistance > thisMove.hAllowedDistance + GLIDING_HORIZONTAL_PRECISION_GRACE
@@ -5195,7 +5576,7 @@ public class SurvivalFly extends Check {
                                                                final double hDistanceAboveLimit) {
         // Model cleanup: normal elytra glides can miss the vertical curve by a few centimeters only.
         final boolean accepted = Bridge1_9.isGliding(player)
-                && tags.contains("glide_vertical_prediction_miss")
+                && tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_PREDICTION_MISS)
                 && yDistanceAboveLimit <= GLIDING_VERTICAL_SMALL_MISS_GRACE
                 && thisMove.hDistance <= GLIDING_VERTICAL_SMALL_MISS_MOVE_GRACE
                 && (hDistanceAboveLimit <= GLIDING_HORIZONTAL_PRECISION_GRACE
@@ -5212,13 +5593,24 @@ public class SurvivalFly extends Check {
                                                      final double hDistanceAboveLimit) {
         // Model cleanup: bound "below predicted" gliding by server velocity/rocket packet order instead of a flat fallback.
         if (!Bridge1_9.isGliding(player)
-                || !tags.contains("glide_vertical_actual_below_model")
+                || !tags.contains(SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_BELOW_MODEL)
                 || thisMove.yDistance > thisMove.yAllowedDistance
                 || hDistanceAboveLimit > GLIDING_HORIZONTAL_PRECISION_GRACE
                 || thisMove.from.inLiquid || thisMove.to.inLiquid) {
             return false;
         }
         final double velocityY = player.getVelocity().getY();
+        if (currentGlidingFullVelocityMatches(player, thisMove, GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE)
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - velocityY)
+                        + GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE) {
+            /*
+             * Elytra model: steep dives can have an invalid previous move after
+             * resync, but the current server velocity vector still exactly owns
+             * the packet. Do not cap those by the generic below-model window.
+             */
+            tags.add("glide_below_current_velocity_vector_model");
+            return true;
+        }
         final double lowerModel = Math.min(thisMove.yAllowedDistance, velocityY);
         final double residual = data.fireworksBoostDuration > 0
                 ? GLIDING_FIREWORK_PACKET_ORDER_VERTICAL_RESIDUAL
@@ -5237,6 +5629,12 @@ public class SurvivalFly extends Check {
         return accepted;
     }
 
+    private boolean currentGlidingFullVelocityMatches(final Player player, final PlayerMoveData thisMove,
+                                                       final double verticalResidual) {
+        return currentGlidingActualVelocityMatches(player, thisMove)
+                && Math.abs(thisMove.yDistance - player.getVelocity().getY()) <= verticalResidual;
+    }
+
     private boolean acceptsElytraEquippedDescendVerticalModel(final Player player,
                                                               final PlayerMoveData thisMove,
                                                               final PlayerMoveData lastMove,
@@ -5253,8 +5651,8 @@ public class SurvivalFly extends Check {
         if (thisMove.hDistance <= horizontalLimit
                 && hDistanceAboveLimit <= getModelOverLimit(thisMove.hAllowedDistance,
                         horizontalLimit, ELYTRA_EQUIPPED_DESCEND_HORIZONTAL_OVER_GRACE)
-                && yDistanceAboveLimit <= getModelOverLimit(thisMove.yAllowedDistance,
-                        verticalModel, ELYTRA_EQUIPPED_DESCEND_VERTICAL_OVER_GRACE)) {
+                && yDistanceAboveLimit <= Math.abs(thisMove.yAllowedDistance - verticalModel)
+                        + ELYTRA_EQUIPPED_DESCEND_VERTICAL_OVER_GRACE) {
             tags.add("elytra_equipped_descend_vertical_model");
             return true;
         }
@@ -5267,8 +5665,14 @@ public class SurvivalFly extends Check {
                                                          final PlayerMoveData lastMove) {
         final double velocityY = player.getVelocity().getY();
         double model = thisMove.yAllowedDistance;
-        if (velocityY < -Magic.PREDICTION_EPSILON) {
-            model = Math.min(model, velocityY);
+        if (velocityY < -Magic.PREDICTION_EPSILON && velocityY > model) {
+            /*
+             * Elytra-equipped transition model: when Bukkit has already exposed
+             * a slower downward velocity than the vanilla air prediction, use
+             * that server velocity as the upper fall boundary. This covers legit
+             * soft glide-exit/landing packets without widening true hover.
+             */
+            model = velocityY;
         }
         if (lastMove.toIsValid && lastMove.yDistance < -Magic.PREDICTION_EPSILON
                 && (hasCollisionSignal(thisMove) || tags.contains("hvel") || tags.contains("hvel_current"))) {
@@ -5351,6 +5755,63 @@ public class SurvivalFly extends Check {
         }
         tags.add("elytra_equipped_neutral_vertical_model_miss");
         return false;
+    }
+
+    private boolean acceptsElytraEquippedLastInvalidAscendVerticalModel(final Player player,
+                                                                        final PlayerLocation from,
+                                                                        final PlayerLocation to,
+                                                                        final PlayerMoveData thisMove,
+                                                                        final PlayerMoveData lastMove,
+                                                                        final double yDistanceAboveLimit,
+                                                                        final double hDistanceAboveLimit) {
+        if (!Bridge1_9.isWearingElytra(player)
+                || Bridge1_9.isGliding(player)
+                || lastMove.toIsValid
+                || thisMove.yDistance <= Magic.PREDICTION_EPSILON
+                || from.isInLiquid() || to.isInLiquid()
+                || thisMove.from.inLiquid || thisMove.to.inLiquid) {
+            return false;
+        }
+        final boolean lowJumpContinuation = isElytraEquippedLastInvalidLowJumpContinuation(thisMove);
+        if (!lowJumpContinuation && thisMove.yDistance > ELYTRA_EQUIPPED_LAST_INVALID_ASCEND_MAX_MOVE) {
+            return false;
+        }
+        final double horizontalLimit = Math.max(thisMove.hAllowedDistance,
+                Math.max(MathUtil.dist(player.getVelocity().getX(), player.getVelocity().getZ())
+                        + playerInputHorizontalCarry(thisMove)
+                        + ELYTRA_EQUIPPED_VELOCITY_HORIZONTAL_RESIDUAL,
+                        lowJumpContinuation ? getElytraEquippedGroundHorizontalModelLimit(player, thisMove, lastMove) : 0.0D));
+        if (thisMove.hDistance > horizontalLimit
+                || hDistanceAboveLimit > getModelOverLimit(thisMove.hAllowedDistance,
+                        horizontalLimit, ELYTRA_EQUIPPED_VELOCITY_HORIZONTAL_RESIDUAL)) {
+            tags.add("elytra_equipped_last_invalid_ascend_horizontal_miss");
+            return false;
+        }
+        final double verticalModel = lowJumpContinuation
+                ? LAST_INVALID_LOW_JUMP_CONTINUATION_VERTICAL_MAX : Math.max(0.0D, player.getVelocity().getY());
+        final double verticalResidual = lowJumpContinuation
+                ? LAST_INVALID_LOW_JUMP_CONTINUATION_VERTICAL_EPSILON
+                : ELYTRA_EQUIPPED_LAST_INVALID_ASCEND_VERTICAL_RESIDUAL;
+        if (thisMove.yDistance <= verticalModel + verticalResidual
+                && yDistanceAboveLimit <= getModelOverLimit(thisMove.yAllowedDistance,
+                        verticalModel, verticalResidual)) {
+            /*
+             * Elytra model: after stale/invalid movement history, a low pre-glide launch
+             * packet can expose current server Y velocity, or one vanilla low-jump
+             * continuation while the player is still only wearing an elytra.
+             */
+            tags.add(lowJumpContinuation ? "elytra_equipped_last_invalid_low_jump_vertical_model"
+                    : "elytra_equipped_last_invalid_ascend_vertical_model");
+            return true;
+        }
+        tags.add("elytra_equipped_last_invalid_ascend_vertical_model_miss");
+        return false;
+    }
+
+    private boolean isElytraEquippedLastInvalidLowJumpContinuation(final PlayerMoveData thisMove) {
+        return thisMove.yDistance >= LAST_INVALID_LOW_JUMP_CONTINUATION_VERTICAL_MIN
+                && thisMove.yDistance <= LAST_INVALID_LOW_JUMP_CONTINUATION_VERTICAL_MAX
+                && getHorizontalInputScale(thisMove) > 0.0D;
     }
 
     private boolean acceptsElytraEquippedSmallVerticalResyncModel(final Player player,
@@ -5792,6 +6253,9 @@ public class SurvivalFly extends Check {
         if (isLeafLitterNear(from, to)) {
             return "leaf_litter_partial_support";
         }
+        if (isSnowSupportNear(from, to)) {
+            return "snow_partial_support";
+        }
         return "partial_support";
     }
 
@@ -5823,6 +6287,13 @@ public class SurvivalFly extends Check {
                 || isLeafLitter(to.getBlockTypeBelow());
     }
 
+    private boolean isSnowSupportNear(final PlayerLocation from, final PlayerLocation to) {
+        return isSnowSupportBlock(from.getBlockType())
+                || isSnowSupportBlock(from.getBlockTypeBelow())
+                || isSnowSupportBlock(to.getBlockType())
+                || isSnowSupportBlock(to.getBlockTypeBelow());
+    }
+
     private boolean isPartialSupportNear(final PlayerLocation from, final PlayerLocation to) {
         return isPartialSupportBlock(from.getBlockType())
                 || isPartialSupportBlock(from.getBlockTypeBelow())
@@ -5834,7 +6305,8 @@ public class SurvivalFly extends Check {
         return isThinSupportBlock(material)
                 || isStepBlock(material)
                 || isFenceLikeSupport(material)
-                || isLeafLitter(material);
+                || isLeafLitter(material)
+                || isSnowSupportBlock(material);
     }
 
     private boolean isThinSupportBlock(final Material material) {
@@ -5863,6 +6335,41 @@ public class SurvivalFly extends Check {
 
     private boolean isLeafLitter(final Material material) {
         return material != null && material.name().endsWith("LEAF_LITTER");
+    }
+
+    private boolean isSnowSupportBlock(final Material material) {
+        return material == Material.SNOW;
+    }
+
+    private double getSnowSupportHeightModel(final PlayerLocation from, final PlayerLocation to) {
+        return Math.max(Math.max(getSnowSupportHeight(from, false), getSnowSupportHeight(from, true)),
+                Math.max(getSnowSupportHeight(to, false), getSnowSupportHeight(to, true)));
+    }
+
+    private double getSnowSupportHeight(final PlayerLocation location, final boolean below) {
+        final int blockY = location.getBlockY() - (below ? 1 : 0);
+        final Material material = below ? location.getBlockTypeBelow() : location.getBlockType();
+        if (!isSnowSupportBlock(material)) {
+            return 0.0D;
+        }
+        final double boundsHeight = getSnowSupportBoundsHeight(location, blockY);
+        if (boundsHeight > 0.0D) {
+            return boundsHeight;
+        }
+        final int data = location.getData(location.getBlockX(), blockY, location.getBlockZ()) & 0xF;
+        return Math.min(SNOW_SUPPORT_MAX_COLLISION_HEIGHT, Math.max(0.0D, data * SNOW_SUPPORT_LAYER_HEIGHT));
+    }
+
+    private double getSnowSupportBoundsHeight(final PlayerLocation location, final int blockY) {
+        final double[] bounds = location.getBlockCache().getBounds(location.getBlockX(), blockY, location.getBlockZ());
+        if (bounds == null || bounds.length < 5) {
+            return 0.0D;
+        }
+        double height = bounds[4];
+        for (int i = 10; i < bounds.length; i += 6) {
+            height = Math.max(height, bounds[i]);
+        }
+        return Math.min(SNOW_SUPPORT_MAX_COLLISION_HEIGHT, Math.max(0.0D, height));
     }
 
     private boolean isPortalNear(final PlayerLocation from, final PlayerLocation to) {
@@ -7578,6 +8085,287 @@ public class SurvivalFly extends Check {
                 && actualVelocityDiff + GLIDING_CURRENT_VELOCITY_BETTER_MODEL_GRACE < modelVelocityDiff;
     }
 
+    private boolean currentGlidingVerticalVelocityEnvelopeCovers(final Player player,
+                                                                final PlayerMoveData thisMove,
+                                                                final double yAllowedDistance,
+                                                                final double yDistanceAboveLimit) {
+        if (yDistanceAboveLimit > GLIDING_CURRENT_VELOCITY_VERTICAL_OVER_GRACE
+                || thisMove.yDistance + Magic.PREDICTION_EPSILON < yAllowedDistance) {
+            return false;
+        }
+        final double velocityY = player.getVelocity().getY();
+        return velocityY > yAllowedDistance + Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= velocityY + GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE;
+    }
+
+    private boolean currentVelocityBudgetsNoFireworkAscent(final Player player,
+                                                           final PlayerMoveData thisMove,
+                                                           final double energyLimit) {
+        final Vector velocity = player.getVelocity();
+        final double velocityY = velocity.getY();
+        final double velocityH = MathUtil.dist(velocity.getX(), velocity.getZ());
+        return velocityY > energyLimit + Magic.PREDICTION_EPSILON
+                && thisMove.yDistance <= velocityY + GLIDING_CURRENT_VELOCITY_VERTICAL_MATCH_GRACE
+                && Math.max(thisMove.hDistance, velocityH) >= GLIDING_NO_FIREWORK_CURRENT_VELOCITY_MIN_HORIZONTAL;
+    }
+
+    private double getNoFireworkDownwardVelocityAscentDebt(final Player player,
+                                                          final PlayerMoveData thisMove,
+                                                          final double energyLimit) {
+        final double velocityY = player.getVelocity().getY();
+        final boolean lowEnergyAscent = thisMove.yDistance > Magic.PREDICTION_EPSILON
+                && velocityY <= GLIDING_NO_FIREWORK_DOWNWARD_VELOCITY_Y
+                && (thisMove.hDistance < GLIDING_NO_FIREWORK_ASCENT_SPEED_START
+                    || energyLimit <= GLIDING_NO_FIREWORK_ASCENT_RESIDUAL + GLIDING_VERTICAL_PRECISION_GRACE);
+        if (!lowEnergyAscent) {
+            return 0.0D;
+        }
+        /*
+         * Elytra no-firework energy model: a real glide cannot climb while the
+         * server velocity says the player is already moving downward, unless
+         * speed/dive energy pays for it. This catches packet-shaped vertical fly
+         * before the broader hover timer is the only thing responding.
+         */
+        return Math.min(GLIDING_NO_FIREWORK_DOWNWARD_VELOCITY_MAX_DEBT,
+                Math.max(0.0D, thisMove.yDistance - velocityY - GLIDING_NO_FIREWORK_ASCENT_RESIDUAL));
+    }
+
+    private double getNoFireworkGlidingDescentBudgetOver(final Player player,
+                                                         final MovingData data,
+                                                         final PlayerMoveData thisMove) {
+        if (data.fireworksBoostDuration > 0
+                || player.getVelocity().getY() > Magic.PREDICTION_EPSILON
+                || data.hoverAirTicks < GLIDING_NO_FIREWORK_DESCENT_BUDGET_MIN_TICKS) {
+            return 0.0D;
+        }
+        final double deficit = data.hoverExpectedDrop - data.hoverActualDrop;
+        final boolean flatHover = data.hoverActualDrop <= GLIDING_NO_FIREWORK_FLAT_MAX_ACTUAL_DROP
+                && deficit > GLIDING_NO_FIREWORK_FLAT_DROP_DEFICIT;
+        final boolean broadBudgetMiss = deficit > GLIDING_NO_FIREWORK_DESCENT_DROP_DEFICIT;
+        if (!flatHover && !broadBudgetMiss) {
+            return 0.0D;
+        }
+        addTag(flatHover
+                ? "glide_no_firework_flat_hover_model_miss"
+                : "glide_no_firework_descent_budget_model_miss");
+        return deficit - (flatHover ? GLIDING_NO_FIREWORK_FLAT_DROP_DEFICIT
+                : GLIDING_NO_FIREWORK_DESCENT_DROP_DEFICIT);
+    }
+
+    private boolean updateNoFireworkGlidingAscentEnergy(final Player player, final MovingData data,
+                                                        final PlayerLocation from,
+                                                        final PlayerMoveData thisMove,
+                                                        final PlayerMoveData lastMove) {
+        if (!isNoFireworkGlidingAscentTracked(player, data, thisMove)) {
+            final boolean resetStart = shouldResetNoFireworkGlidingStart(player, data);
+            resetNoFireworkGlidingAscentEnergy(data, resetStart);
+            if (!resetStart && data.elytraNoFireworkStart != null) {
+                /*
+                 * Elytra no-firework model: correction teleports and packet
+                 * resync can briefly surface as queued velocity. Preserve the
+                 * original glide-start anchor through that internal noise, so
+                 * a vertical-fly client cannot slowly refresh the anchor upward.
+                 */
+                addTag("glide_no_firework_start_anchor_preserved");
+            }
+            return false;
+        }
+        recordNoFireworkGlidingStart(data, from);
+        updateNoFireworkGlidingDescentCredit(data, thisMove);
+        if (thisMove.yDistance <= Magic.PREDICTION_EPSILON) {
+            data.elytraNoFireworkAscentTicks = 0;
+            data.elytraNoFireworkAscentDebt = Math.max(0.0D,
+                    data.elytraNoFireworkAscentDebt - Math.max(0.02D, -thisMove.yDistance));
+            return false;
+        }
+        final double energyLimit = getNoFireworkGlidingAscentEnergyLimit(data, thisMove, lastMove);
+        final double velocityContradictionDebt = getNoFireworkDownwardVelocityAscentDebt(player, thisMove, energyLimit);
+        final double modeledExcess = thisMove.yDistance - energyLimit;
+        final double excess = Math.max(modeledExcess, velocityContradictionDebt);
+        data.elytraNoFireworkAscentExcess = Math.max(0.0D, excess);
+        if (excess <= 0.0D) {
+            data.elytraNoFireworkAscentTicks = 0;
+            data.elytraNoFireworkAscentDebt = Math.max(0.0D, data.elytraNoFireworkAscentDebt - 0.02D);
+            consumeNoFireworkGlidingDescentCredit(data);
+            addTag("glide_no_firework_ascent_energy_model");
+            return false;
+        }
+        if (currentVelocityBudgetsNoFireworkAscent(player, thisMove, energyLimit)) {
+            /*
+             * Elytra no-firework energy model: do not treat ascent as client-created
+             * if the packet is still inside Bukkit's current velocity envelope and
+             * there is enough horizontal glide speed to plausibly carry that energy.
+             */
+            data.elytraNoFireworkAscentTicks = 0;
+            data.elytraNoFireworkAscentDebt = Math.max(0.0D,
+                    data.elytraNoFireworkAscentDebt - Math.max(0.04D, excess * 0.5D));
+            addTag("glide_no_firework_ascent_velocity_budget_model");
+            return false;
+        }
+        if (velocityContradictionDebt > modeledExcess) {
+            addTag("glide_no_firework_downward_velocity_ascent_debt");
+        }
+        data.elytraNoFireworkAscentTicks++;
+        data.elytraNoFireworkAscentDebt += excess;
+        final boolean violation = data.elytraNoFireworkAscentTicks > GLIDING_NO_FIREWORK_ASCENT_TICK_LIMIT
+                || data.elytraNoFireworkAscentDebt > GLIDING_NO_FIREWORK_ASCENT_DEBT_LIMIT;
+        addTag(violation ? "glide_no_firework_ascent_energy_miss" : "glide_no_firework_ascent_energy_debt");
+        return violation;
+    }
+
+    private void recordNoFireworkGlidingStart(final MovingData data, final PlayerLocation from) {
+        final Location start = data.elytraNoFireworkStart;
+        if (start != null && start.getWorld().equals(from.getWorld())) {
+            return;
+        }
+        /*
+         * Elytra no-firework anchor: remember where this glide began. If the
+         * player later climbs above this without a firework/velocity/dive budget,
+         * the correction can use the launch point instead of a moving air setback.
+         */
+        data.elytraNoFireworkStart = from.getLocation();
+        addTag("glide_no_firework_start_anchor");
+    }
+
+    private void updateNoFireworkGlidingDescentCredit(final MovingData data,
+                                                      final PlayerMoveData thisMove) {
+        data.elytraNoFireworkDescentCreditUsed = 0.0D;
+        if (thisMove.yDistance < -Magic.PREDICTION_EPSILON) {
+            /*
+             * Elytra no-firework energy model: a real glide can trade altitude
+             * lost during the current glide session back into a later climb. Store
+             * actual descent as energy, then spend it only through the horizontal
+             * speed-gated ascent envelope below.
+             */
+            data.elytraNoFireworkDescentCredit = Math.min(GLIDING_NO_FIREWORK_DESCENT_CREDIT_CAP,
+                    data.elytraNoFireworkDescentCredit
+                            + (-thisMove.yDistance * GLIDING_NO_FIREWORK_DESCENT_CREDIT_FACTOR));
+            return;
+        }
+        data.elytraNoFireworkDescentCredit = Math.max(0.0D,
+                data.elytraNoFireworkDescentCredit - GLIDING_NO_FIREWORK_DESCENT_CREDIT_DECAY);
+    }
+
+    private boolean isNoFireworkGlidingAscentTracked(final Player player, final MovingData data,
+                                                     final PlayerMoveData thisMove) {
+        return Bridge1_9.isGliding(player)
+                && data.fireworksBoostDuration <= 0
+                && Double.isInfinite(Bridge1_9.getLevitationAmplifier(player))
+                && data.timeRiptiding + 1500 <= System.currentTimeMillis()
+                && !data.hasQueuedVerVel()
+                && thisMove.verVelUsed.isEmpty();
+    }
+
+    private boolean shouldResetNoFireworkGlidingStart(final Player player, final MovingData data) {
+        return !Bridge1_9.isGliding(player)
+                || data.fireworksBoostDuration > 0
+                || !Double.isInfinite(Bridge1_9.getLevitationAmplifier(player))
+                || data.timeRiptiding + 1500 > System.currentTimeMillis();
+    }
+
+    private double getNoFireworkGlidingAscentEnergyLimit(final MovingData data,
+                                                         final PlayerMoveData thisMove,
+                                                         final PlayerMoveData lastMove) {
+        if (!lastMove.toIsValid) {
+            return recordNoFireworkGlidingAscentBudget(data, thisMove, GLIDING_NO_FIREWORK_ASCENT_RESIDUAL, 0.0D);
+        }
+        final double decayedAscent = lastMove.yDistance > 0.0D
+                ? Math.max(0.0D, (lastMove.yDistance - Magic.DEFAULT_GRAVITY) * Magic.FRICTION_MEDIUM_AIR) : 0.0D;
+        final double diveLift = Math.max(0.0D, -lastMove.yDistance) * GLIDING_NO_FIREWORK_ASCENT_DIVE_FACTOR;
+        final double tradedSpeedLift = Math.max(0.0D, lastMove.hDistance - thisMove.hDistance)
+                * GLIDING_NO_FIREWORK_ASCENT_TRADE_FACTOR;
+        final double descentCreditLift = getNoFireworkGlidingDescentCreditLift(data, thisMove, lastMove);
+        final double rawSpeedLift = Math.min(GLIDING_NO_FIREWORK_ASCENT_SPEED_CAP,
+                Math.max(0.0D, lastMove.hDistance - GLIDING_NO_FIREWORK_ASCENT_SPEED_START)
+                        * GLIDING_NO_FIREWORK_ASCENT_SPEED_FACTOR);
+        final boolean hasEarnedLiftSource = diveLift > Magic.PREDICTION_EPSILON
+                || tradedSpeedLift > Magic.PREDICTION_EPSILON
+                || descentCreditLift > Magic.PREDICTION_EPSILON;
+        final double speedLift = hasEarnedLiftSource ? rawSpeedLift : 0.0D;
+        if (rawSpeedLift > 0.0D && speedLift <= 0.0D && thisMove.yDistance > GLIDING_NO_FIREWORK_ASCENT_RESIDUAL) {
+            addTag("glide_no_firework_unearned_speed_lift");
+        }
+        /*
+         * Elytra no-firework energy model: climbing must be paid for by decaying
+         * previous upward momentum, a prior dive, horizontal speed actually traded
+         * away, or descent credit earned earlier in the same glide. Horizontal
+         * speed alone is not an energy source; otherwise a flat no-firework hover
+         * can create altitude just by maintaining speed.
+         */
+        final double energyLimit = Math.max(decayedAscent,
+                Math.max(diveLift, speedLift + tradedSpeedLift + descentCreditLift))
+                + GLIDING_NO_FIREWORK_ASCENT_RESIDUAL;
+        return recordNoFireworkGlidingAscentBudget(data, thisMove, energyLimit,
+                tradedSpeedLift + descentCreditLift);
+    }
+
+    private double getNoFireworkGlidingDescentCreditLift(final MovingData data,
+                                                         final PlayerMoveData thisMove,
+                                                         final PlayerMoveData lastMove) {
+        data.elytraNoFireworkDescentCreditUsed = 0.0D;
+        if (data.elytraNoFireworkDescentCredit <= 0.0D) {
+            return 0.0D;
+        }
+        final double hDistance = Math.max(thisMove.hDistance, lastMove.toIsValid ? lastMove.hDistance : 0.0D);
+        if (hDistance < GLIDING_NO_FIREWORK_DESCENT_CREDIT_MIN_H) {
+            return 0.0D;
+        }
+        final double speedScale = Math.min(1.0D, Math.max(0.0D,
+                (hDistance - GLIDING_NO_FIREWORK_DESCENT_CREDIT_MIN_H)
+                        / (GLIDING_NO_FIREWORK_DESCENT_CREDIT_FULL_H
+                        - GLIDING_NO_FIREWORK_DESCENT_CREDIT_MIN_H)));
+        final double lift = Math.min(data.elytraNoFireworkDescentCredit,
+                GLIDING_NO_FIREWORK_DESCENT_CREDIT_TICK_CAP * speedScale);
+        data.elytraNoFireworkDescentCreditUsed = lift;
+        if (lift > 0.0D) {
+            addTag("glide_no_firework_descent_credit_model");
+        }
+        return lift;
+    }
+
+    private void consumeNoFireworkGlidingDescentCredit(final MovingData data) {
+        if (data.elytraNoFireworkDescentCreditUsed <= 0.0D) {
+            return;
+        }
+        data.elytraNoFireworkDescentCredit = Math.max(0.0D,
+                data.elytraNoFireworkDescentCredit - data.elytraNoFireworkDescentCreditUsed);
+    }
+
+    private double recordNoFireworkGlidingAscentBudget(final MovingData data, final PlayerMoveData thisMove,
+                                                       final double energyLimit, final double tradedSpeedLift) {
+        data.elytraNoFireworkAscentBudget = energyLimit;
+        data.elytraNoFireworkAscentExcess = Math.max(0.0D, thisMove.yDistance - energyLimit);
+        data.elytraNoFireworkNeededH = getNoFireworkHorizontalSpeedNeededForAscent(thisMove.yDistance, tradedSpeedLift);
+        return energyLimit;
+    }
+
+    private double getNoFireworkHorizontalSpeedNeededForAscent(final double yDistance, final double tradedSpeedLift) {
+        final double ascent = Math.max(0.0D, yDistance);
+        final double speedLiftNeeded = Math.max(0.0D,
+                ascent - GLIDING_NO_FIREWORK_ASCENT_RESIDUAL - Math.max(0.0D, tradedSpeedLift));
+        if (speedLiftNeeded <= 0.0D) {
+            return 0.0D;
+        }
+        if (speedLiftNeeded > GLIDING_NO_FIREWORK_ASCENT_SPEED_CAP) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return GLIDING_NO_FIREWORK_ASCENT_SPEED_START
+                + speedLiftNeeded / GLIDING_NO_FIREWORK_ASCENT_SPEED_FACTOR;
+    }
+
+    private void resetNoFireworkGlidingAscentEnergy(final MovingData data, final boolean resetStart) {
+        data.elytraNoFireworkAscentTicks = 0;
+        data.elytraNoFireworkAscentDebt = 0.0D;
+        data.elytraNoFireworkAscentBudget = 0.0D;
+        data.elytraNoFireworkAscentExcess = 0.0D;
+        data.elytraNoFireworkNeededH = Double.NaN;
+        data.elytraNoFireworkDescentCredit = 0.0D;
+        data.elytraNoFireworkDescentCreditUsed = 0.0D;
+        if (resetStart) {
+            data.elytraNoFireworkStart = null;
+        }
+    }
+
     private boolean currentGlidingHorizontalVelocityCovers(final Player player, final PlayerMoveData thisMove,
                                                            final double xAllowedDistance, final double zAllowedDistance,
                                                            final double xDemand, final double zDemand) {
@@ -7613,13 +8401,17 @@ public class SurvivalFly extends Check {
     }
 
     private void addGlidingVerticalPredictionTags(final double offsetV) {
-        addTag("glide_vertical_prediction_miss");
-        addTag(offsetV > 0.0 ? "glide_vertical_actual_above_model" : "glide_vertical_actual_below_model");
+        addTag(SurvivalFlyTags.GLIDE_VERTICAL_PREDICTION_MISS);
+        addTag(offsetV > 0.0
+                ? SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_ABOVE_MODEL
+                : SurvivalFlyTags.GLIDE_VERTICAL_ACTUAL_BELOW_MODEL);
     }
 
     private void addGlidingHorizontalPredictionTags(final double offsetH) {
-        addTag("glide_horizontal_prediction_miss");
-        addTag(offsetH > 0.0 ? "glide_horizontal_actual_above_model" : "glide_horizontal_actual_below_model");
+        addTag(SurvivalFlyTags.GLIDE_HORIZONTAL_PREDICTION_MISS);
+        addTag(offsetH > 0.0
+                ? SurvivalFlyTags.GLIDE_HORIZONTAL_ACTUAL_ABOVE_MODEL
+                : SurvivalFlyTags.GLIDE_HORIZONTAL_ACTUAL_BELOW_MODEL);
     }
 
     private void addGlidingLookAndFireworkTags(final MovingData data, final PlayerLocation to,
@@ -7686,7 +8478,7 @@ public class SurvivalFly extends Check {
         final boolean partialSupport = isPartialSupportNear(from, to);
         final double partialHorizontalLimit = partialSupport ? getPartialSupportHorizontalModelLimit(from, to, thisMove, lastMove) : 0.0D;
         final double partialVerticalLimit = partialSupport ? getPartialSupportVerticalModelLimit(from, to, thisMove) : 0.0D;
-        final double partialVerticalClamp = partialSupport ? getPartialSupportVerticalClampModel(thisMove.yDistance) : 0.0D;
+        final double partialVerticalClamp = partialSupport ? getPartialSupportVerticalClampModel(from, to, thisMove.yDistance) : 0.0D;
         final boolean jumpProbe = isJumpDiagnosticProbe(data, thisMove);
         player.getServer().getLogger().info(SurvivalFlyDiagnostics.formatDetail(player, from, to, setback,
                 data, pData, thisMove, lastMove, isBedrockPlayer(player, pData),
@@ -7708,6 +8500,36 @@ public class SurvivalFly extends Check {
                         hAllowedDistance, yAllowedDistance, getElytraPitchBand(to.getPitch()),
                         getYawDelta(from.getYaw(), to.getYaw())),
                 StringUtil.join(tags, "+")));
+    }
+
+    private boolean shouldLogFlightTraceSample(final Player player, final MovingData data,
+                                               final PlayerMoveData thisMove) {
+        if (data.getPlayerMoveCount() % 10 != 0) {
+            return false;
+        }
+        if (Bridge1_9.isGliding(player) || Bridge1_9.isWearingElytra(player)) {
+            return true;
+        }
+        // Diagnostic collection: sample possible no-elytra hover/fly tests without logging every normal jump.
+        return data.sfHoverTicks >= 0 || (!thisMove.from.onGroundOrResetCond && !thisMove.to.onGroundOrResetCond
+                && Math.abs(thisMove.yDistance) < 0.04D);
+    }
+
+    private void logFlightTraceSample(final Player player, final MovingData data, final IPlayerData pData,
+                                      final PlayerLocation from, final PlayerLocation to,
+                                      final PlayerMoveData thisMove, final PlayerMoveData lastMove,
+                                      final boolean fromOnGround, final boolean resetFrom,
+                                      final boolean toOnGround, final boolean resetTo,
+                                      final int tick) {
+        final String movementMode = SurvivalFlyDiagnostics.formatMovementMode(player, data, from, to, thisMove,
+                fromOnGround, resetFrom, toOnGround, resetTo);
+        player.getServer().getLogger().info("[NCP][SurvivalFly][flight] player=" + player.getName()
+                + " bedrock=" + isBedrockPlayer(player, pData)
+                + " tick=" + tick
+                + " moveCount=" + data.getPlayerMoveCount()
+                + " movementMode=" + movementMode
+                + " flightTrace=" + SurvivalFlyDiagnostics.formatFlightTrace(player, data, thisMove, lastMove,
+                movementMode, from, to));
     }
 
     private boolean isJumpDiagnosticProbe(final MovingData data, final PlayerMoveData move) {
@@ -7742,6 +8564,11 @@ public class SurvivalFly extends Check {
         // Increment violation level.
         addViolationModeTag(player, from, to, data.playerMoves.getCurrentMove(), data);
         addViolationDiagnosticTags(player, from, to, data);
+        if (shouldUseNoFireworkElytraDownwardSetBack(player, data)) {
+            addTag(shouldUseNoFireworkElytraStartSetBack(to, data)
+                    ? "glide_no_firework_start_setback"
+                    : "glide_no_firework_downward_setback");
+        }
         data.survivalFlyVL += result;
         data.sfVLMoveCount = data.getPlayerMoveCount();
         final ViolationData vd = new ViolationData(this, player, data.survivalFlyVL, result, cc.survivalFlyActions);
@@ -7754,13 +8581,104 @@ public class SurvivalFly extends Check {
         // Some resetting is done in MovingListener.
         if (executeActions(vd).willCancel()) {
             // Set back + view direction of to (more smooth).
-            return MovingUtil.getApplicableSetBackLocation(player, to.getYaw(), to.getPitch(), to, data, cc);
+            final Location fallback = MovingUtil.getApplicableSetBackLocation(player, to.getYaw(), to.getPitch(), to, data, cc);
+            return getNoFireworkElytraSetBackLocation(player, to, to.getYaw(), to.getPitch(), data, fallback);
         }
         else {
             data.sfJumpPhase = 0;
             // Cancelled by other plugin, or no cancel set by configuration.
             return null;
         }
+    }
+
+    private Location getNoFireworkElytraSetBackLocation(final Player player, final PlayerLocation ref,
+                                                        final float refYaw, final float refPitch,
+                                                        final MovingData data, final Location fallback) {
+        if (!shouldUseNoFireworkElytraDownwardSetBack(player, data)) {
+            return fallback;
+        }
+        final Location startCorrection = getNoFireworkElytraStartSetBackLocation(ref, refYaw, refPitch, data);
+        if (startCorrection != null) {
+            return startCorrection;
+        }
+        final double drop = getNoFireworkElytraSetBackDrop(data);
+        final Vector allowedDrop = ref.collide(new Vector(0.0D, -drop, 0.0D), false, ref.getBoundingBox());
+        if (allowedDrop.getY() >= -Magic.PREDICTION_EPSILON) {
+            return fallback;
+        }
+        final Location correction = ref.getLocation();
+        correction.setYaw(refYaw);
+        correction.setPitch(refPitch);
+        correction.setY(ref.getY() + allowedDrop.getY());
+        if (fallback != null && fallback.getWorld().equals(correction.getWorld())
+                && fallback.getY() < correction.getY()) {
+            return fallback;
+        }
+        /*
+         * Elytra no-firework correction model: ordinary SurvivalFly setbacks are
+         * updated during accepted gliding, so a hover cheat can otherwise be
+         * cancelled back to an air checkpoint. For no-energy ascent/hover, choose
+         * a collision-aware downward correction so repeated violations force real
+         * descent instead of preserving the illegal altitude.
+         */
+        addTag("glide_no_firework_downward_setback");
+        return correction;
+    }
+
+    private Location getNoFireworkElytraStartSetBackLocation(final PlayerLocation ref,
+                                                             final float refYaw, final float refPitch,
+                                                             final MovingData data) {
+        if (!shouldUseNoFireworkElytraStartSetBack(ref, data)) {
+            return null;
+        }
+        final Location start = data.elytraNoFireworkStart;
+        /*
+         * Elytra no-firework correction model: if the player climbed above the
+         * point where the no-firework glide started, snap back to that anchor.
+         * Hovering at roughly the same height still uses the downward correction
+         * below, because the start anchor would not create descent.
+         */
+        final Location correction = start.clone();
+        correction.setYaw(refYaw);
+        correction.setPitch(refPitch);
+        addTag("glide_no_firework_start_setback");
+        return correction;
+    }
+
+    private boolean shouldUseNoFireworkElytraStartSetBack(final PlayerLocation ref, final MovingData data) {
+        final Location start = data.elytraNoFireworkStart;
+        if (start == null || !start.getWorld().equals(ref.getWorld())) {
+            return false;
+        }
+        final double yGain = ref.getY() - start.getY();
+        if (yGain < GLIDING_NO_FIREWORK_START_SETBACK_MIN_GAIN) {
+            return false;
+        }
+        final double dx = ref.getX() - start.getX();
+        final double dz = ref.getZ() - start.getZ();
+        return dx * dx + dz * dz <= GLIDING_NO_FIREWORK_START_SETBACK_MAX_HORIZONTAL
+                * GLIDING_NO_FIREWORK_START_SETBACK_MAX_HORIZONTAL;
+    }
+
+    private boolean shouldUseNoFireworkElytraDownwardSetBack(final Player player, final MovingData data) {
+        if (!Bridge1_9.isGliding(player) || data.fireworksBoostDuration > 0) {
+            return false;
+        }
+        final double deficit = data.hoverExpectedDrop - data.hoverActualDrop;
+        return tags.contains("glide_no_firework_ascent_energy_enforced")
+                || tags.contains("glide_no_firework_descent_budget_enforced")
+                || tags.contains("glide_no_firework_flat_hover_model_miss")
+                || tags.contains("glide_no_firework_descent_budget_model_miss")
+                || deficit > GLIDING_NO_FIREWORK_FLAT_DROP_DEFICIT;
+    }
+
+    private double getNoFireworkElytraSetBackDrop(final MovingData data) {
+        final double deficit = Math.max(0.0D, data.hoverExpectedDrop - data.hoverActualDrop);
+        final double modelDrop = deficit * GLIDING_NO_FIREWORK_SETBACK_DEFICIT_FACTOR
+                + Math.max(0.0D, data.elytraNoFireworkAscentDebt) * GLIDING_NO_FIREWORK_SETBACK_DEBT_FACTOR
+                + Math.max(0.0D, data.elytraNoFireworkAscentExcess) * GLIDING_NO_FIREWORK_SETBACK_EXCESS_FACTOR;
+        return Math.min(GLIDING_NO_FIREWORK_SETBACK_MAX_DROP,
+                Math.max(GLIDING_NO_FIREWORK_SETBACK_MIN_DROP, modelDrop));
     }
 
     private void addViolationModeTag(final Player player, final PlayerLocation from, final PlayerLocation to,
@@ -7907,7 +8825,7 @@ public class SurvivalFly extends Check {
                 addTag("diag_partial_support_h_limit_miss");
             }
             if (move.yDistance < -Magic.PREDICTION_EPSILON) {
-                final double verticalClamp = getPartialSupportVerticalClampModel(move.yDistance);
+                final double verticalClamp = getPartialSupportVerticalClampModel(from, to, move.yDistance);
                 if (verticalClamp > 0.0D) {
                     addTag("diag_partial_support_clamp_candidate");
                 }
@@ -8046,11 +8964,21 @@ public class SurvivalFly extends Check {
             vd.setParameter(ParameterName.LOCATION_TO, "(HOVER)");
             vd.setParameter(ParameterName.DISTANCE, "0.0(HOVER)");
             // Diagnostic info: hover is a SurvivalFly action path, so tag it as its own subcheck.
-            vd.setParameter(ParameterName.TAGS, "subcheck_hover+branch_air_model+hover");
+            final boolean elytraHover = Bridge1_9.isGliding(player);
+            final String hoverTags = elytraHover
+                    ? "subcheck_hover+branch_elytra_model+hover+hover_elytra_budget_model+hover_descent_budget_model"
+                            + (shouldUseNoFireworkElytraDownwardSetBack(player, data)
+                                    ? (shouldUseNoFireworkElytraStartSetBack(loc, data)
+                                            ? "+glide_no_firework_start_setback"
+                                            : "+glide_no_firework_downward_setback")
+                                    : "")
+                    : "subcheck_hover+branch_air_model+hover+hover_air_stall_model+hover_descent_budget_model";
+            vd.setParameter(ParameterName.TAGS, hoverTags);
         }
         if (executeActions(vd).willCancel()) {
             // Set back or kick.
-            final Location newTo = MovingUtil.getApplicableSetBackLocation(player, loc.getYaw(), loc.getPitch(), loc, data, cc);
+            final Location fallback = MovingUtil.getApplicableSetBackLocation(player, loc.getYaw(), loc.getPitch(), loc, data, cc);
+            final Location newTo = getNoFireworkElytraSetBackLocation(player, loc, loc.getYaw(), loc.getPitch(), data, fallback);
             if (newTo != null) {
                 data.prepareSetBack(newTo);
                 SchedulerHelper.teleportEntity(player, newTo, BridgeMisc.TELEPORT_CAUSE_CORRECTION_OF_POSITION);

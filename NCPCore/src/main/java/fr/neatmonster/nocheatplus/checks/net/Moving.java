@@ -46,10 +46,6 @@ import fr.neatmonster.nocheatplus.utilities.math.TrigUtil;
  */
 public class Moving extends Check {
 
-    /** For temporary use: LocUtil.clone before passing deeply, call setWorld(null) after use. */
-    final Location useLoc = new Location(null, 0, 0, 0);
-    final List<String> tags = new ArrayList<String>();
-    
     public Moving() {
         super(CheckType.NET_MOVING);
     }
@@ -72,7 +68,7 @@ public class Moving extends Check {
         boolean cancel = false;
         final long now = System.currentTimeMillis();
         final boolean debug = pData.isDebugActive(CheckType.NET_MOVING);
-        tags.clear();
+        final List<String> tags = new ArrayList<String>();
         if (now > pData.getLastJoinTime() && pData.getLastJoinTime() + 10000 > now) {
             tags.add("login_grace");
         	return false;
@@ -85,13 +81,17 @@ public class Moving extends Check {
         if (packetData != null && packetData.hasPos) {
             final MovingData mData = pData.getGenericInstance(MovingData.class);
             /** Actual Location on the server */
-            final Location knownLocation = player.getLocation(useLoc);
-            if (knownLocation == null || knownLocation.getWorld() == null) {
-                // Folia compatibility: a disconnecting player can leave the reusable Location without a world.
+            final Location useLoc = new Location(null, 0, 0, 0);
+            final Location rawKnownLocation = player.getLocation(useLoc);
+            if (rawKnownLocation == null || rawKnownLocation.getWorld() == null) {
+                // Folia compatibility: a disconnecting player can leave the temporary Location without a world.
                 tags.add("known_world_null_grace");
                 useLoc.setWorld(null);
                 return false;
             }
+            // Folia/packet safety: keep packet-thread teleport models away from mutable temporary Location state.
+            final Location knownLocation = LocUtil.clone(rawKnownLocation);
+            useLoc.setWorld(null);
             data.recordMovingKnownLocation(knownLocation, now);
             /** Claimed Location sent by the client */
             final Location packetLocation = new Location(null, packetData.getX(), packetData.getY(), packetData.getZ());
@@ -145,7 +145,7 @@ public class Moving extends Check {
                 if (CheckUtils.shouldLogDebugToConsole()
                         && !(serverPositionJumpModel || teleportCommandModel)) {
                     final String reason = serverPositionJumpModel || teleportCommandModel ? "model" : "grace";
-                    logConsoleDetails(reason, player, packetData, knownLocation, packetLocation, hDistance, yDistance,
+                    logConsoleDetails(reason, tags, player, packetData, knownLocation, packetLocation, hDistance, yDistance,
                             distance, data, mData, pData, now);
                 }
                 if (serverPositionJumpModel || teleportCommandModel) {
@@ -162,7 +162,6 @@ public class Moving extends Check {
                     }
                 }
                 data.movingVL *= 0.98;
-                useLoc.setWorld(null);
                 return false;
             }
 
@@ -174,7 +173,7 @@ public class Moving extends Check {
                 // Diagnostic info: separate net extreme-move flags from teleport/grace branches.
                 tags.add(0, "subcheck_netmoving_extreme_move");
                 if (CheckUtils.shouldLogDebugToConsole()) {
-                    logConsoleDetails("violation", player, packetData, knownLocation, packetLocation, hDistance, yDistance,
+                    logConsoleDetails("violation", tags, player, packetData, knownLocation, packetLocation, hDistance, yDistance,
                             distance, data, mData, pData, now);
                 }
                 final ViolationData vd = new ViolationData(this, player, data.movingVL, 1.0, cc.movingActions);
@@ -187,20 +186,20 @@ public class Moving extends Check {
         }
 
         if (debug) {
-            final Location packetLocation = new Location(null, packetData.getX(), packetData.getY(), packetData.getZ());
             final StringBuilder builder = new StringBuilder(500);
-            if (packetData.hasPos) {
+            if (packetData != null && packetData.hasPos) {
+                final Location packetLocation = new Location(null, packetData.getX(), packetData.getY(), packetData.getZ());
+                final Location serverLocation = player.getLocation();
                 builder.append(CheckUtils.getLogMessagePrefix(player, type));
                 builder.append("\nPacket location: " + LocUtil.simpleFormat(packetLocation));
-                builder.append("\nServer location: " + LocUtil.simpleFormat(player.getLocation(useLoc)));
-                builder.append("\nDeltas: h= " + TrigUtil.distance(player.getLocation(useLoc), packetLocation) + ", y= " + Math.abs(player.getLocation(useLoc).getY() - packetLocation.getY()));
+                builder.append("\nServer location: " + LocUtil.simpleFormat(serverLocation));
+                builder.append("\nDeltas: h= " + TrigUtil.distance(serverLocation, packetLocation) + ", y= " + Math.abs(serverLocation.getY() - packetLocation.getY()));
             }
             else {
             	builder.append("Empty packet (no position)");
             }
             NCPAPIProvider.getNoCheatPlusAPI().getLogManager().debug(Streams.TRACE_FILE, builder.toString());
         }
-        useLoc.setWorld(null);
         return cancel;
     }
 
@@ -214,7 +213,8 @@ public class Moving extends Check {
                 || !lastMove.toIsValid;
     }
 
-    private void logConsoleDetails(final String reason, final Player player, final DataPacketFlying packetData,
+    private void logConsoleDetails(final String reason, final List<String> tags,
+                                   final Player player, final DataPacketFlying packetData,
                                    final Location knownLocation, final Location packetLocation,
                                    final double hDistance, final double yDistance, final double distance,
                                    final NetData data, final MovingData mData, final IPlayerData pData,

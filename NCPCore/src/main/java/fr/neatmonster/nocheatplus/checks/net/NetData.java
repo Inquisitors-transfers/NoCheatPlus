@@ -512,18 +512,19 @@ public class NetData extends ACheckData {
         movingVL *= 0.5;
         final int queueSizeBeforeClear = getFlyingQueueSize();
         clearFlyingQueue();
-        if (player == null || plugin == null || mData == null || knownLocation == null) {
+        if (player == null || plugin == null || mData == null || knownLocation == null
+                || knownLocation.getWorld() == null) {
             return;
         }
+        final Location modelLocation = LocUtil.clone(knownLocation);
         final long resyncKey = Math.max(lastServerPositionJumpTime, lastTeleportCommandTime);
         if (resyncKey <= 0L || lastTeleportResyncMovingDataKey == resyncKey) {
             return;
         }
         lastTeleportResyncMovingDataKey = resyncKey;
-        recordPendingTeleportResync(resyncKey, knownLocation, now, reason);
-        logTeleportResyncStalePacketDrop(player, now, knownLocation, packetLocation, packetData,
+        recordPendingTeleportResync(resyncKey, modelLocation, now, reason);
+        logTeleportResyncStalePacketDrop(player, now, modelLocation, packetLocation, packetData,
                 reason, "opened", queueSizeBeforeClear, true);
-        final Location modelLocation = LocUtil.clone(knownLocation);
         final Object task = SchedulerHelper.runSyncTaskForEntity(player, plugin, (arg) -> {
             if (lastTeleportResyncAppliedKey == resyncKey) {
                 return;
@@ -616,11 +617,11 @@ public class NetData extends ACheckData {
             current = player.isOnline() ? player.getLocation() : null;
         }
         catch (Throwable ignored) {}
-        final Location appliedTarget = isNearPendingTeleportTarget(current) ? current
-                : isNearPendingTeleportTarget(eventTo) ? eventTo
-                : isNearPendingTeleportTarget(eventFrom) ? eventFrom
-                : modelTarget;
-        if (!isNearPendingTeleportTarget(appliedTarget)) {
+        final Location appliedTarget = isWorldBackedPendingTeleportTarget(current) ? current
+                : isWorldBackedPendingTeleportTarget(eventTo) ? eventTo
+                : isWorldBackedPendingTeleportTarget(eventFrom) ? eventFrom
+                : null;
+        if (appliedTarget == null) {
             return false;
         }
         // Teleport/Folia model: move-event code is region-safe, so clear old movement history immediately.
@@ -678,6 +679,11 @@ public class NetData extends ACheckData {
         }
         return distanceToStored(lastTeleportResyncX, lastTeleportResyncY, lastTeleportResyncZ, loc)
                 <= MOVING_TELEPORT_RESYNC_TARGET_DISTANCE;
+    }
+
+    private boolean isWorldBackedPendingTeleportTarget(final Location loc) {
+        // Folia packet safety: only real Bukkit-world locations may be stored as MovingData set backs.
+        return loc != null && loc.getWorld() != null && isNearPendingTeleportTarget(loc);
     }
 
     private boolean isStalePacketNearStoredPositionModel(final Location packetLocation,

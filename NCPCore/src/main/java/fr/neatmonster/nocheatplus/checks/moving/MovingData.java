@@ -233,6 +233,8 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
     public double noFallMaxY = 0;
     /** Indicate that NoFall is not to use next damage event for checking on-ground properties. */ 
     public boolean noFallSkipAirCheck = false;
+    /** Elytra NoFall model: last time glide movement reset fall-distance accounting. */
+    public long noFallElytraResetTime = 0L;
     /** Last coordinate from when the player was affected wind charge explosion */
     public Location noFallCurrentLocOnWindChargeHit = null;
 
@@ -249,6 +251,30 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
     public int sfHoverTicks = -1;
     /** First count these down before incrementing sfHoverTicks. Set on join, if configured so. */
     public int sfHoverLoginTicks = 0;
+    /** Hover model: airborne ticks included in the accumulated descent budget. */
+    public int hoverAirTicks = 0;
+    /** Hover model: total downward movement expected from gravity/glide prediction, plus unexplained ascent debt. */
+    public double hoverExpectedDrop = 0.0;
+    /** Hover model: total downward movement actually sent by the client. */
+    public double hoverActualDrop = 0.0;
+    /** Hover model: last predicted vertical velocity used for budget continuity. */
+    public double hoverLastYVelocity = 0.0;
+    /** Elytra model: consecutive no-firework upward glide packets outside the energy envelope. */
+    public int elytraNoFireworkAscentTicks = 0;
+    /** Elytra model: accumulated no-firework ascent above speed/dive-derived lift. */
+    public double elytraNoFireworkAscentDebt = 0.0;
+    /** Elytra model diagnostics: allowed upward movement from decayed/dive/speed lift for the last no-firework glide packet. */
+    public double elytraNoFireworkAscentBudget = 0.0;
+    /** Elytra model diagnostics: upward movement above the last no-firework ascent budget. */
+    public double elytraNoFireworkAscentExcess = 0.0;
+    /** Elytra model diagnostics: horizontal speed needed if speed lift alone were explaining the observed ascent. */
+    public double elytraNoFireworkNeededH = Double.NaN;
+    /** Elytra model: session energy bank created by actual no-firework descent. */
+    public double elytraNoFireworkDescentCredit = 0.0;
+    /** Elytra model diagnostics: descent credit used by the last accepted no-firework ascent packet. */
+    public double elytraNoFireworkDescentCreditUsed = 0.0;
+    /** Elytra model: first location of the current no-firework glide session, used as the illegal-ascent correction anchor. */
+    public Location elytraNoFireworkStart = null;
     /** Fake in air flag: set with any violation, reset once on ground. */
     public boolean sfVLInAir = false;
     /** Workarounds (AirWorkarounds,LiquidWorkarounds). */
@@ -349,6 +375,7 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
         removeAllPlayerSpeedModifiers();
         clearWindChargeImpulse();
         sfHoverTicks = sfHoverLoginTicks = -1;
+        resetHoverAirBudget();
         liftOffEnvelope = defaultLiftOffEnvelope;
         vehicleConsistency = MoveConsistency.INCONSISTENT;
         verticalBounce = null;
@@ -378,6 +405,7 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
         // Keep jump amplifier
         // keep jump phase.
         sfHoverTicks = -1; // 0 ?
+        resetHoverAirBudget();
         liftOffEnvelope = defaultLiftOffEnvelope;
         removeAllPlayerSpeedModifiers();
         vehicleConsistency = MoveConsistency.INCONSISTENT; // Not entirely sure here.
@@ -409,7 +437,24 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
         verticalBounce = null;
         // Remember where we send the player to.
         setTeleported(loc);
-        // TODO: sfHoverTicks ?
+        sfHoverTicks = -1;
+        resetHoverAirBudget();
+    }
+
+
+    public void resetHoverAirBudget() {
+        hoverAirTicks = 0;
+        hoverExpectedDrop = 0.0;
+        hoverActualDrop = 0.0;
+        hoverLastYVelocity = 0.0;
+        elytraNoFireworkAscentTicks = 0;
+        elytraNoFireworkAscentDebt = 0.0;
+        elytraNoFireworkAscentBudget = 0.0;
+        elytraNoFireworkAscentExcess = 0.0;
+        elytraNoFireworkNeededH = Double.NaN;
+        elytraNoFireworkDescentCredit = 0.0;
+        elytraNoFireworkDescentCreditUsed = 0.0;
+        elytraNoFireworkStart = null;
     }
 
 
@@ -557,9 +602,11 @@ public class MovingData extends ACheckData implements IDataOnRemoveSubCheckData,
         clearPlayerMorePacketsData();
         sfJumpPhase = 0;
         sfHoverTicks = -1;
+        resetHoverAirBudget();
         verticalBounce = null;
         timeSinceSetBack = 0;
-        if (loc != null) {
+        if (loc != null && loc.getWorld() != null) {
+            // Folia/teleport safety: packet models can carry coordinate-only targets, but set backs need a real world.
             setSetBack(loc);
         }
         resetTeleported();

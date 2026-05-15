@@ -630,22 +630,12 @@ public class SurvivalFly extends Check {
         final double dataOnlyResult = (Math.max(hDistanceAboveLimit, 0.0) + Math.max(yDistanceAboveLimit, 0.0)) * 100D;
         if (dataOnlyResult > 0.0 && isElytraModelDataOnly(player, cc)) {
             /*
-             * Elytra model collection: log the exact model miss, but do not add
-             * VL or set back while we are still tuning the glide envelope.
+             * Elytra model collection is data-only when enforcement is disabled.
+             * Keep the model passive without dumping every glide miss to console;
+             * violation details below still include elytra diagnostics when the
+             * check is actively enforced.
              */
             addTag(SurvivalFlyTags.ELYTRA_MODEL_DATA_ONLY);
-            if (CheckUtils.shouldLogDebugToConsole()) {
-                try {
-                    logConsoleDetails(dataOnlyResult, player, from, to, null, data, pData, thisMove, lastMove,
-                            hAllowedDistance, hDistanceAboveLimit, yAllowedDistance, yDistanceAboveLimit,
-                            fromOnGround, resetFrom, toOnGround, resetTo, tick, now, multiMoveCount,
-                            isNormalOrPacketSplitMove);
-                }
-                catch (Throwable t) {
-                    player.getServer().getLogger().info("[NCP][SurvivalFly][detail] data-only diagnostic logging failed for player="
-                            + player.getName() + " reason=" + t.getClass().getSimpleName());
-                }
-            }
             hDistanceAboveLimit = 0.0D;
             yDistanceAboveLimit = 0.0D;
         }
@@ -661,10 +651,6 @@ public class SurvivalFly extends Check {
             data.ws.setJustUsedIds(null);
         }
         else tagsLength = 0; // JIT vs. IDE.
-        if (CheckUtils.shouldLogDebugToConsole() && shouldLogFlightTraceSample(player, data, thisMove)) {
-            logFlightTraceSample(player, data, pData, from, to, thisMove, lastMove,
-                    fromOnGround, resetFrom, toOnGround, resetTo, tick);
-        }
 
 
         //////////////////////////////////////
@@ -8500,36 +8486,6 @@ public class SurvivalFly extends Check {
                         hAllowedDistance, yAllowedDistance, getElytraPitchBand(to.getPitch()),
                         getYawDelta(from.getYaw(), to.getYaw())),
                 StringUtil.join(tags, "+")));
-    }
-
-    private boolean shouldLogFlightTraceSample(final Player player, final MovingData data,
-                                               final PlayerMoveData thisMove) {
-        if (data.getPlayerMoveCount() % 10 != 0) {
-            return false;
-        }
-        if (Bridge1_9.isGliding(player) || Bridge1_9.isWearingElytra(player)) {
-            return true;
-        }
-        // Diagnostic collection: sample possible no-elytra hover/fly tests without logging every normal jump.
-        return data.sfHoverTicks >= 0 || (!thisMove.from.onGroundOrResetCond && !thisMove.to.onGroundOrResetCond
-                && Math.abs(thisMove.yDistance) < 0.04D);
-    }
-
-    private void logFlightTraceSample(final Player player, final MovingData data, final IPlayerData pData,
-                                      final PlayerLocation from, final PlayerLocation to,
-                                      final PlayerMoveData thisMove, final PlayerMoveData lastMove,
-                                      final boolean fromOnGround, final boolean resetFrom,
-                                      final boolean toOnGround, final boolean resetTo,
-                                      final int tick) {
-        final String movementMode = SurvivalFlyDiagnostics.formatMovementMode(player, data, from, to, thisMove,
-                fromOnGround, resetFrom, toOnGround, resetTo);
-        player.getServer().getLogger().info("[NCP][SurvivalFly][flight] player=" + player.getName()
-                + " bedrock=" + isBedrockPlayer(player, pData)
-                + " tick=" + tick
-                + " moveCount=" + data.getPlayerMoveCount()
-                + " movementMode=" + movementMode
-                + " flightTrace=" + SurvivalFlyDiagnostics.formatFlightTrace(player, data, thisMove, lastMove,
-                movementMode, from, to));
     }
 
     private boolean isJumpDiagnosticProbe(final MovingData data, final PlayerMoveData move) {
